@@ -10,7 +10,7 @@ Build a restricted-access, mobile-friendly weekly progress-report web app using 
 ## 2. Confirmed architectural decisions
 - Google Workspace is **not required** for MVP.
 - Company-controlled consumer Gmail owns the My Drive archive folder; do not use an individual employee's personal account if possible.
-- Google Sign-In via Firebase Authentication is for user identity. Invite-only application authorization and role-based rules are enforced on the server using verified Firebase UID and active user registry.
+- Google Sign-In and Firebase Email Link Passwordless via Firebase Authentication are the approved methods for user identity. Invite-only application authorization and role-based rules are enforced on the server using verified Firebase UID and active user registry.
 - Login OAuth and Google Drive authorization are **separate consent and token flows**. Normal users are not asked to grant Drive permissions.
 - Database (Firestore) is source of truth; Google Drive stores approved PDFs and snapshots only.
 - OAuth 2.0 Drive integration uses a company-controlled Google user authorization, NOT service-account impersonation, domain-wide delegation, or Shared Drives.

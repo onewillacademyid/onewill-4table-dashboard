@@ -2,19 +2,23 @@
 
 /**
  * Onewill Academy | The 4 Table Weekly Progress Dashboard
- * Demo Auth Context and Permissions Helper
- * NOTE: UI DEMO ONLY — Simulates role-based access control.
- * In production, this will be backed by Firebase Auth & Firestore security rules.
+ * Auth Context and Role Permissions Helper
+ * Integrates real Firebase Auth + Server Session verification alongside demo persona switching.
  */
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User, WeeklyReport } from '../types';
 import { DEMO_USERS } from '../services/reportRepository';
+import { fetchServerSession, logoutClient } from '@/lib/firebase/auth-client';
 
 interface AuthContextType {
   currentUser: User;
   allUsers: User[];
+  isAuthenticated: boolean;
+  isLiveAuth: boolean;
   switchUser: (userId: string) => void;
+  refreshSession: () => Promise<void>;
+  logout: () => Promise<void>;
   canApprove: (report: WeeklyReport) => { allowed: boolean; reason?: string };
   canEdit: (report: WeeklyReport) => boolean;
   canSubmit: (report: WeeklyReport) => boolean;
@@ -40,16 +44,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // ignore
       }
     }
-    // Default to Team Lead (Siti Nurhaliza) for rich preview
     return DEMO_USERS[1];
   });
 
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isLiveAuth, setIsLiveAuth] = useState<boolean>(false);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
+
+  const refreshSession = useCallback(async () => {
+    const res = await fetchServerSession();
+    if (res.success && res.user) {
+      setCurrentUser(res.user);
+      setIsAuthenticated(true);
+      setIsLiveAuth(true);
+    } else {
+      setIsAuthenticated(false);
+      setIsLiveAuth(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshSession();
+  }, [refreshSession]);
+
+  const logout = async () => {
+    await logoutClient();
+    setIsAuthenticated(false);
+    setIsLiveAuth(false);
+    // Fall back to demo user persona
+    setCurrentUser(DEMO_USERS[1]);
+  };
 
   const switchUser = (userId: string) => {
     const user = DEMO_USERS.find((u) => u.id === userId);
     if (user) {
       setCurrentUser(user);
+      setIsLiveAuth(false);
       if (typeof window !== 'undefined') {
         try {
           localStorage.setItem(CURRENT_USER_KEY, user.id);
@@ -85,7 +115,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     }
 
-    // Team Leads can review reports from their own team (except their own reports)
     if (currentUser.role === 'TEAM_LEAD' && report.teamId !== currentUser.teamId) {
       return {
         allowed: false,
@@ -99,11 +128,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   /**
    * Evaluates if the current user can edit a report.
    * Reports can only be edited if in DRAFT or NEEDS_REVISION state.
-   * User must be the author, or Admin/Super Admin.
    */
   const canEdit = (report: WeeklyReport): boolean => {
     if (report.status === 'APPROVED' || report.status === 'ARCHIVED') {
-      return false; // Immutable once approved
+      return false;
     }
 
     if (currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN') {
@@ -113,9 +141,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return report.authorId === currentUser.id;
   };
 
-  /**
-   * Can submit when draft or needs revision.
-   */
   const canSubmit = (report: WeeklyReport): boolean => {
     if (report.status !== 'DRAFT' && report.status !== 'NEEDS_REVISION') {
       return false;
@@ -123,9 +148,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return report.authorId === currentUser.id || currentUser.role === 'SUPER_ADMIN';
   };
 
-  /**
-   * Can archive only if approved and user has admin/management rights.
-   */
   const canArchive = (report: WeeklyReport): boolean => {
     if (report.status !== 'APPROVED') return false;
     return ['MANAGEMENT', 'ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
@@ -138,6 +160,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         currentUser,
         allUsers: DEMO_USERS,
+        isAuthenticated,
+        isLiveAuth,
+        refreshSession,
+        logout,
         switchUser,
         canApprove,
         canEdit,

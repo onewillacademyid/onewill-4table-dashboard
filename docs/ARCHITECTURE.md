@@ -48,7 +48,7 @@ flowchart TD
 ```
 
 ### Identity and authorization (M3)
-- Google Sign-In proves identity; explicit invited and active user registry grants access. Bind accepted invitation to verified UID; enforce teams, roles, ownership and reviewer assignment on every privileged endpoint.
+- Google Sign-In and Firebase Email Link Passwordless prove identity; explicit invited and active user registry grants access. Bind accepted invitation to verified UID; enforce teams, roles, ownership and reviewer assignment on every privileged endpoint.
 - Firebase Admin SDK and session-cookies are **server-only**; use HttpOnly, Secure in HTTPS, SameSite and CSRF/origin checks.
 - No automatic first-login Super Admin. Bootstrap via one-time controlled operator procedure.
 - Firestore user and invitation records are established in M3; report collection remains demo until 1B.
