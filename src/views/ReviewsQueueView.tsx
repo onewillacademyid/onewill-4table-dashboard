@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * ReviewsQueueView Component
  * Queue of submitted reports awaiting managerial or lead review.

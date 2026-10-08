@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * ReportDetailView Component
  * Read-only view for inspected or approved reports.

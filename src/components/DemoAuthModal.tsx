@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * Demo Auth Modal Component
  * Displays branded Google Sign-In UI DEMO ONLY with role/persona switcher.

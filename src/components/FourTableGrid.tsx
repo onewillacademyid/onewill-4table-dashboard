@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * FourTableGrid Component
  * Strictly enforces:

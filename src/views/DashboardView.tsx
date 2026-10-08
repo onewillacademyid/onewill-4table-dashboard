@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * DashboardView Component
  * Executive overview with period selector, expected vs received report KPIs,

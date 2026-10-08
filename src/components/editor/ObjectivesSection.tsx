@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * Section 3: Sasaran Pekan Depan (Next Objectives)
  * Fields: objective, measurableOutcome, assignee, dueDate, priority, linkedIssueId.

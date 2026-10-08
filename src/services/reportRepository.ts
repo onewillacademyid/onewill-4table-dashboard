@@ -598,6 +598,9 @@ const STORAGE_KEY = 'onewill_weekly_reports_v1';
 
 export class ReportRepository {
   private getStorage(): WeeklyReport[] {
+    if (typeof window === 'undefined') {
+      return INITIAL_REPORTS;
+    }
     try {
       const data = localStorage.getItem(STORAGE_KEY);
       if (data) {
@@ -611,6 +614,7 @@ export class ReportRepository {
   }
 
   private saveStorage(reports: WeeklyReport[]): void {
+    if (typeof window === 'undefined') return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(reports));
     } catch {
@@ -952,6 +956,7 @@ export class ReportRepository {
   }
 
   public resetDemoData(): void {
+    if (typeof window === 'undefined') return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_REPORTS));
     } catch {

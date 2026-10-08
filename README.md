@@ -70,7 +70,7 @@ stateDiagram-v2
 
 ---
 
-## 💻 Struktur Berkas Proyek (Project Structure)
+## 💻 Struktur Berkas Proyek (Next.js App Router Target Architecture)
 
 ```text
 ├── public/
@@ -78,38 +78,64 @@ stateDiagram-v2
 │   ├── onewill-mark.svg           # Lambang ikon monogram sirkular
 │   └── onewill-logo-horizontal.svg# Logo versi horizontal
 ├── src/
+│   ├── app/                       # Next.js App Router Routes
+│   │   ├── admin/
+│   │   │   ├── integrations/
+│   │   │   │   └── page.tsx       # /admin/integrations (Drive Status Tahap 3)
+│   │   │   └── users/
+│   │   │       └── page.tsx       # /admin/users (Direktori pengguna & peran)
+│   │   ├── dashboard/
+│   │   │   └── page.tsx           # /dashboard (Ringkasan KPI & matriks laporan)
+│   │   ├── reports/
+│   │   │   ├── [id]/
+│   │   │   │   ├── edit/
+│   │   │   │   │   └── page.tsx   # /reports/[id]/edit (Editor amendemen)
+│   │   │   │   └── page.tsx       # /reports/[id] (Detail baca-saja 2x2)
+│   │   │   ├── new/
+│   │   │   │   └── page.tsx       # /reports/new (Pembuatan laporan baru)
+│   │   │   └── page.tsx           # /reports (Daftar & riwayat laporan)
+│   │   ├── reviews/
+│   │   │   └── page.tsx           # /reviews (Antrean persetujuan pimpinan)
+│   │   ├── error.tsx              # Error boundary segmen rute
+│   │   ├── global-error.tsx       # Error boundary global aplikasi
+│   │   ├── globals.css            # Tailwind CSS v4 & token warna tema Onewill
+│   │   ├── layout.tsx             # RootLayout (AuthProvider, Header, Footer)
+│   │   ├── loading.tsx            # Loading indicator transisi rute
+│   │   ├── not-found.tsx          # Tampilan 404 terdedikasi
+│   │   └── page.tsx               # Root route (ringkasan eksekutif)
 │   ├── components/
 │   │   ├── editor/
 │   │   │   ├── AchievementsSection.tsx # Seksi 1: Capaian Pekan Lalu
 │   │   │   ├── IssuesSection.tsx       # Seksi 2: Kendala & Hambatan
 │   │   │   ├── ObjectivesSection.tsx   # Seksi 3: Sasaran Pekan Depan
 │   │   │   └── SupportSection.tsx      # Seksi 4: Dukungan yang Dibutuhkan
+│   │   ├── layout/
+│   │   │   ├── Footer.tsx         # Quiet corporate footer
+│   │   │   └── Header.tsx         # Top Bar Contract (Next.js Link & navigation)
 │   │   ├── DemoAuthModal.tsx      # Simulasi login & pemilih persona
 │   │   ├── FourTableGrid.tsx      # Kontainer 2×2 matriks desktop & mobile
-│   │   ├── Header.tsx             # Navigasi atas (Top Bar Contract)
 │   │   ├── MetricCard.tsx         # Kartu KPI eksekutif (Tabular figures)
 │   │   └── StatusBadge.tsx        # Chip status berpasangan teks + ikon
 │   ├── context/
-│   │   └── AuthContext.tsx        # Penyedia sesi demo & helper hak akses
+│   │   └── AuthContext.tsx        # Penyedia sesi demo & helper hak akses (SSR-guarded)
 │   ├── services/
-│   │   └── reportRepository.ts    # Abstraksi repositori data (Demo adapter)
+│   │   └── reportRepository.ts    # Abstraksi repositori data (SSR-guarded adapter)
 │   ├── types/
 │   │   └── index.ts               # Definisi model TypeScript domain
 │   ├── utils/
 │   │   └── dateUtils.ts           # Perhitungan pekan ISO & format Indonesia (WIB)
-│   ├── views/
-│   │   ├── AdminIntegrationsView.tsx # Status integrasi Drive Tahap 3
-│   │   ├── AdminUsersView.tsx     # Direktori pengguna & simulasi undangan
-│   │   ├── DashboardView.tsx      # Ringkasan eksekutif & drill-down KPI
-│   │   ├── ReportDetailView.tsx   # Penampil laporan baca-saja & riwayat revisi
-│   │   ├── ReportEditorView.tsx   # Editor formulir 4 tabel + autosave
-│   │   ├── ReportsListView.tsx    # Arsip riwayat laporan terfilter
-│   │   └── ReviewsQueueView.tsx   # Antrean tinjauan manajerial
-│   ├── App.tsx                    # Rangka utama aplikasi & navigasi
-│   ├── index.css                  # Konfigurasi Tailwind CSS v4 & token tema
+│   ├── views/                     # Reusable domain page views
+│   │   ├── AdminIntegrationsView.tsx
+│   │   ├── AdminUsersView.tsx
+│   │   ├── DashboardView.tsx
+│   │   ├── ReportDetailView.tsx
+│   │   ├── ReportEditorView.tsx
+│   │   ├── ReportsListView.tsx
+│   │   └── ReviewsQueueView.tsx
+│   ├── App.tsx                    # Shell SPA alternatif
 │   └── main.tsx                   # Titik masuk React 19
-├── index.html                     # HTML shell, SEO meta & favicon
-├── metadata.json                  # Metadata aplikasi AI Studio
+├── next.config.mjs                # Konfigurasi Next.js
+├── postcss.config.mjs             # Konfigurasi PostCSS Tailwind
 ├── package.json                   # Dependensi & skrip eksekusi
 └── tsconfig.json                  # Konfigurasi kompilasi TypeScript
 ```
@@ -129,16 +155,22 @@ npm install
 
 ### Menjalankan Server Pengembangan (Dev Mode)
 ```bash
+# Server Next.js App Router (Port 3000)
+npm run dev:next
+
+# Atau server Vite SPA (Port 3000)
 npm run dev
 ```
-Aplikasi berjalan pada port `http://localhost:3000`.
 
 ### Validasi Kode & Pengetikan Statis
 ```bash
 # Validasi tipe TypeScript
 npm run lint
 
-# Kompilasi produksi
+# Kompilasi produksi Next.js App Router (Turbopack)
+npm run build:next
+
+# Kompilasi produksi Vite
 npm run build
 ```
 

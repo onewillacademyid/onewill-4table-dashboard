@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * Section 1: Capaian Pekan Lalu (Achievements)
  * Fields: description, project, result, target/actual/unit (optional), evidenceUrl, linkedObjectiveId.

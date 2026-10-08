@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * ReportEditorView Component
  * Form for creating or modifying a 4 Table Weekly Report.

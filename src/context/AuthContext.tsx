@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * Onewill Academy | The 4 Table Weekly Progress Dashboard
  * Demo Auth Context and Permissions Helper
@@ -29,12 +31,14 @@ const CURRENT_USER_KEY = 'onewill_demo_current_user_id';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User>(() => {
-    try {
-      const savedId = localStorage.getItem(CURRENT_USER_KEY);
-      const found = DEMO_USERS.find((u) => u.id === savedId);
-      if (found) return found;
-    } catch {
-      // ignore
+    if (typeof window !== 'undefined') {
+      try {
+        const savedId = localStorage.getItem(CURRENT_USER_KEY);
+        const found = DEMO_USERS.find((u) => u.id === savedId);
+        if (found) return found;
+      } catch {
+        // ignore
+      }
     }
     // Default to Team Lead (Siti Nurhaliza) for rich preview
     return DEMO_USERS[1];
@@ -46,10 +50,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const user = DEMO_USERS.find((u) => u.id === userId);
     if (user) {
       setCurrentUser(user);
-      try {
-        localStorage.setItem(CURRENT_USER_KEY, user.id);
-      } catch {
-        // ignore
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(CURRENT_USER_KEY, user.id);
+        } catch {
+          // ignore
+        }
       }
     }
   };

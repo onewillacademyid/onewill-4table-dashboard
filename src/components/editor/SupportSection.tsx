@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * Section 4: Dukungan yang Dibutuhkan (Support Needed)
  * Fields: request, type, requestedFrom, neededBy, amount (optional), businessConsequence, status.

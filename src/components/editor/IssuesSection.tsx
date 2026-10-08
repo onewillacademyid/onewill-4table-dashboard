@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * Section 2: Kendala & Hambatan (Issues)
  * Fields: title, businessImpact, severity, owner, mitigation, targetResolutionDate, state.

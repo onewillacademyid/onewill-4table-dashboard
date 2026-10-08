@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * AdminUsersView Component
  * User directory and role management demo.

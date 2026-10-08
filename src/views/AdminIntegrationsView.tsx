@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * AdminIntegrationsView Component
  * Integrations and Google Drive status card.

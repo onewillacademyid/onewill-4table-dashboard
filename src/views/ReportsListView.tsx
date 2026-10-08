@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * ReportsListView Component
  * Complete listing and historical archive of 4 Table Weekly Reports.
