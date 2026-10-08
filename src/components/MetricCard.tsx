@@ -1,6 +1,6 @@
 /**
- * MetricCard Component
- * Displays executive KPIs with tabular figures, single-elevation surfaces, and defensive denominators.
+ * MetricCard Component (Swiss Bento Grid Architecture)
+ * Displays executive KPIs with tabular figures, Bento card elevation, and WCAG-compliant contrast.
  */
 
 import React from 'react';
@@ -26,13 +26,13 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   const getVariantStyles = () => {
     switch (variant) {
       case 'accent':
-        return 'border-[#ebdcf9] bg-white hover:border-[#6C2AA6]/40';
+        return 'border-[#6C2AA6]/20 bg-white hover:border-[#6C2AA6]/40 hover:shadow-md';
       case 'warning':
-        return 'border-amber-200 bg-white hover:border-amber-400';
+        return 'border-amber-200 bg-white hover:border-amber-400 hover:shadow-md';
       case 'danger':
-        return 'border-red-200 bg-white hover:border-red-400';
+        return 'border-rose-200 bg-white hover:border-rose-400 hover:shadow-md';
       default:
-        return 'border-slate-200 bg-white hover:border-slate-300';
+        return 'border-slate-200/80 bg-white hover:border-slate-300 hover:shadow-md';
     }
   };
 
@@ -43,34 +43,47 @@ export const MetricCard: React.FC<MetricCardProps> = ({
       case 'warning':
         return 'text-amber-700';
       case 'danger':
-        return 'text-red-700';
+        return 'text-rose-700';
       default:
         return 'text-slate-900';
+    }
+  };
+
+  const getIconContainerColor = () => {
+    switch (variant) {
+      case 'accent':
+        return 'bg-[#F4EFFA] text-[#6C2AA6]';
+      case 'warning':
+        return 'bg-amber-50 text-amber-700';
+      case 'danger':
+        return 'bg-rose-50 text-rose-700';
+      default:
+        return 'bg-slate-100 text-slate-700';
     }
   };
 
   return (
     <div
       onClick={onClick}
-      className={`p-4 rounded-xl border transition-all ${getVariantStyles()} ${
-        onClick ? 'cursor-pointer hover:shadow-xs' : ''
+      className={`p-5 rounded-2xl border transition-all duration-200 ${getVariantStyles()} ${
+        onClick ? 'cursor-pointer active:scale-[0.99]' : ''
       }`}
     >
-      <div className="flex items-center justify-between text-slate-500 mb-2">
-        <span className="text-xs font-medium text-slate-600 truncate">{label}</span>
+      <div className="flex items-center justify-between text-slate-500 mb-3">
+        <span className="text-xs font-bold uppercase tracking-wider text-slate-500 truncate">{label}</span>
         {Icon && (
-          <div className="p-1.5 rounded-lg bg-slate-50 text-slate-600">
+          <div className={`p-2 rounded-xl ${getIconContainerColor()} transition-colors`}>
             <Icon className="w-4 h-4" aria-hidden="true" />
           </div>
         )}
       </div>
 
-      <div className={`text-2xl font-bold font-sans tracking-tight tabular-nums ${getValueColor()}`}>
+      <div className={`text-3xl font-black tracking-tight tabular-nums ${getValueColor()}`}>
         {value}
       </div>
 
       {subtext && (
-        <div className="mt-1 text-xs text-slate-500 truncate" title={subtext}>
+        <div className="mt-2 text-xs font-semibold text-slate-500 truncate" title={subtext}>
           {subtext}
         </div>
       )}

@@ -1,8 +1,9 @@
 'use client';
 
 /**
- * Onewill Academy | Branded Login Page
- * Supports Google Sign-In & Passwordless Email Link Authentication.
+ * Onewill Academy | Premium Branded Login Experience v2.0
+ * Features Swiss editorial design, Bento glassmorphism card composition,
+ * Google Sign-In, and Passwordless Email Link Authentication.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -14,7 +15,7 @@ import {
   isEmailSignInLink,
   completePasswordlessEmailLink,
 } from '@/lib/firebase/auth-client';
-import { LogIn, Mail, CheckCircle2, AlertCircle, Loader2, ArrowRight } from 'lucide-react';
+import { Mail, CheckCircle2, AlertCircle, Loader2, ArrowRight, ShieldCheck, Lock } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -53,7 +54,7 @@ export default function LoginPage() {
     setIsCompletingLink(false);
 
     if (result.success) {
-      setSuccessMessage('Login berhasil! Mengalihkan ke dasbor...');
+      setSuccessMessage('Login berhasil! Mengalihkan ke dasbor pelaporan...');
       await refreshSession();
       setTimeout(() => {
         router.push('/dashboard');
@@ -88,7 +89,7 @@ export default function LoginPage() {
   const handleSendEmailLink = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !email.includes('@')) {
-      setErrorMessage('Silakan masukkan alamat email yang valid.');
+      setErrorMessage('Silakan masukkan alamat email terdaftar yang valid.');
       return;
     }
 
@@ -118,52 +119,57 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-2xl shadow-xl border border-slate-200">
+    <div className="w-full max-w-md my-auto">
+      {/* Premium Bento Glass Container */}
+      <div className="bg-white/95 backdrop-blur-xl p-8 sm:p-10 rounded-3xl shadow-2xl border border-slate-200/80 space-y-8 text-slate-900 transition-all">
         {/* Brand Header */}
-        <div className="text-center">
-          <div className="mx-auto h-16 w-16 bg-[#35115A] text-white rounded-2xl flex items-center justify-center text-2xl font-extrabold shadow-md mb-4">
+        <div className="text-center space-y-3">
+          <div className="inline-flex items-center justify-center h-16 w-16 bg-[#35115A] text-white rounded-2xl text-2xl font-extrabold shadow-lg shadow-[#35115A]/20 ring-4 ring-[#F4EFFA]">
             OW
           </div>
-          <h2 className="text-2xl font-bold text-[#35115A]">Onewill Academy</h2>
-          <p className="mt-1 text-sm text-slate-600 font-medium">
-            The 4 Table Weekly Progress Dashboard
-          </p>
+          <div>
+            <h1 className="text-2xl font-black text-[#35115A] tracking-tight">
+              Onewill Academy
+            </h1>
+            <p className="mt-1 text-xs font-semibold text-slate-500 uppercase tracking-widest">
+              The 4 Table Weekly Progress Dashboard
+            </p>
+          </div>
         </div>
 
         {/* Completing Link Loading State */}
         {isCompletingLink && (
-          <div className="bg-purple-50 border border-purple-200 rounded-xl p-6 text-center space-y-3">
+          <div className="bg-[#F4EFFA] border border-[#6C2AA6]/20 rounded-2xl p-6 text-center space-y-3">
             <Loader2 className="w-8 h-8 text-[#6C2AA6] animate-spin mx-auto" />
-            <p className="text-sm font-semibold text-[#35115A]">
-              Mengonfirmasi tautan login email Anda...
+            <p className="text-sm font-bold text-[#35115A]">
+              Mengonfirmasi tautan masuk email Anda...
             </p>
           </div>
         )}
 
-        {/* Email Prompt Required for Different Devices */}
+        {/* Email Confirmation Required Prompt */}
         {requiresEmailPrompt && !isCompletingLink && (
-          <form onSubmit={handleConfirmEmailSubmit} className="space-y-4 bg-amber-50 border border-amber-200 p-4 rounded-xl">
-            <div className="flex items-start space-x-2 text-amber-800">
-              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-              <p className="text-xs">
-                Anda membuka tautan masuk di perangkat/peramban baru. Silakan konfirmasi email Anda.
+          <form onSubmit={handleConfirmEmailSubmit} className="space-y-4 bg-amber-50 border border-amber-200 p-5 rounded-2xl">
+            <div className="flex items-start space-x-3 text-amber-900">
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-amber-600" />
+              <p className="text-xs font-medium">
+                Tautan masuk dibuka di perangkat atau peramban baru. Masukkan email Anda untuk konfirmasi.
               </p>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Konfirmasi Email</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Konfirmasi Email Terdaftar</label>
               <input
                 type="email"
                 required
                 value={confirmEmail}
                 onChange={(e) => setConfirmEmail(e.target.value)}
-                placeholder="nama@onewill.id"
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-[#6C2AA6] focus:outline-none"
+                placeholder="staf@onewill.id"
+                className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#6C2AA6] focus:outline-none"
               />
             </div>
             <button
               type="submit"
-              className="w-full py-2 bg-[#6C2AA6] hover:bg-[#35115A] text-white font-medium rounded-lg text-sm transition-colors"
+              className="w-full py-2.5 bg-[#6C2AA6] hover:bg-[#35115A] text-white font-bold rounded-xl text-sm transition-all shadow-sm"
             >
               Konfirmasi & Masuk
             </button>
@@ -172,10 +178,10 @@ export default function LoginPage() {
 
         {/* Error Alert */}
         {errorMessage && (
-          <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl flex items-start space-x-3 text-rose-800 text-sm">
+          <div className="bg-rose-50 border border-rose-200 p-4 rounded-2xl flex items-start space-x-3 text-rose-900 text-sm">
             <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-rose-600" />
             <div>
-              <p className="font-semibold">Akses Ditolak / Gagal</p>
+              <p className="font-bold text-xs">Akses Ditolak</p>
               <p className="text-xs mt-0.5 text-rose-700">{errorMessage}</p>
             </div>
           </div>
@@ -183,10 +189,10 @@ export default function LoginPage() {
 
         {/* Success Alert */}
         {successMessage && (
-          <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl flex items-start space-x-3 text-emerald-800 text-sm">
+          <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl flex items-start space-x-3 text-emerald-900 text-sm">
             <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5 text-emerald-600" />
             <div>
-              <p className="font-semibold">Informasi</p>
+              <p className="font-bold text-xs">Otentikasi Berhasil</p>
               <p className="text-xs mt-0.5 text-emerald-700">{successMessage}</p>
             </div>
           </div>
@@ -194,15 +200,15 @@ export default function LoginPage() {
 
         {!isCompletingLink && !requiresEmailPrompt && (
           <div className="space-y-6">
-            {/* Navigation Tabs */}
-            <div className="flex border-b border-slate-200">
+            {/* Tab Navigation */}
+            <div className="flex bg-slate-100/80 p-1 rounded-xl border border-slate-200/60">
               <button
                 type="button"
                 onClick={() => { setActiveTab('google'); setErrorMessage(null); }}
-                className={`flex-1 py-2.5 text-xs font-bold text-center border-b-2 transition-colors ${
+                className={`flex-1 py-2 text-xs font-extrabold rounded-lg transition-all ${
                   activeTab === 'google'
-                    ? 'border-[#6C2AA6] text-[#6C2AA6]'
-                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                    ? 'bg-white text-[#35115A] shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900'
                 }`}
               >
                 Google Sign-In
@@ -210,27 +216,27 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => { setActiveTab('email'); setErrorMessage(null); }}
-                className={`flex-1 py-2.5 text-xs font-bold text-center border-b-2 transition-colors ${
+                className={`flex-1 py-2 text-xs font-extrabold rounded-lg transition-all ${
                   activeTab === 'email'
-                    ? 'border-[#6C2AA6] text-[#6C2AA6]'
-                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                    ? 'bg-white text-[#35115A] shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900'
                 }`}
               >
-                Email Link Passwordless
+                Email Passwordless
               </button>
             </div>
 
             {/* Tab 1: Google Sign-In */}
             {activeTab === 'google' && (
-              <div className="space-y-4 text-center">
-                <p className="text-xs text-slate-600">
-                  Gunakan akun Google yang terdaftar dalam undangan Onewill Academy.
+              <div className="space-y-5 text-center">
+                <p className="text-xs text-slate-600 font-medium">
+                  Gunakan akun Google staf terdaftar untuk mengakses dasbor pelaporan.
                 </p>
                 <button
                   type="button"
                   onClick={handleGoogleSignIn}
                   disabled={isLoading}
-                  className="w-full flex items-center justify-center space-x-3 py-3 px-4 border border-slate-300 rounded-xl bg-white hover:bg-slate-50 font-semibold text-slate-700 shadow-sm transition-all focus:ring-2 focus:ring-[#6C2AA6] disabled:opacity-50"
+                  className="w-full flex items-center justify-center space-x-3 py-3.5 px-4 border border-slate-300 rounded-2xl bg-white hover:bg-slate-50 font-bold text-slate-700 shadow-xs hover:shadow-md transition-all focus:ring-2 focus:ring-[#6C2AA6] active:scale-[0.99] disabled:opacity-50 cursor-pointer"
                 >
                   {isLoading ? (
                     <Loader2 className="w-5 h-5 animate-spin text-[#6C2AA6]" />
@@ -265,16 +271,16 @@ export default function LoginPage() {
             {activeTab === 'email' && (
               <div>
                 {emailSent ? (
-                  <div className="bg-purple-50 p-6 rounded-xl border border-purple-200 text-center space-y-3">
+                  <div className="bg-[#F4EFFA] p-6 rounded-2xl border border-[#6C2AA6]/20 text-center space-y-3">
                     <Mail className="w-10 h-10 text-[#6C2AA6] mx-auto" />
                     <h3 className="font-bold text-[#35115A]">Periksa Email Anda</h3>
-                    <p className="text-xs text-slate-600">
-                      Tautan akses masuk telah dikirim ke <strong>{email}</strong>. Klik tautan dalam email tersebut untuk masuk tanpa kata sandi.
+                    <p className="text-xs text-slate-600 font-medium">
+                      Tautan akses masuk telah dikirim ke <strong>{email}</strong>. Klik tautan dalam email untuk langsung masuk tanpa kata sandi.
                     </p>
                     <button
                       type="button"
                       onClick={() => setEmailSent(false)}
-                      className="text-xs font-semibold text-[#6C2AA6] hover:underline pt-2 block mx-auto"
+                      className="text-xs font-bold text-[#6C2AA6] hover:underline pt-2 block mx-auto cursor-pointer"
                     >
                       Kirim ulang atau gunakan email lain
                     </button>
@@ -282,7 +288,7 @@ export default function LoginPage() {
                 ) : (
                   <form onSubmit={handleSendEmailLink} className="space-y-4">
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                      <label className="block text-xs font-extrabold text-slate-700 mb-1.5">
                         Alamat Email Terdaftar
                       </label>
                       <input
@@ -290,14 +296,14 @@ export default function LoginPage() {
                         required
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        placeholder="contoh: staf@onewill.id"
-                        className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#6C2AA6] focus:outline-none"
+                        placeholder="staf@onewill.id"
+                        className="w-full px-4 py-3 bg-white border border-slate-300 rounded-2xl text-sm focus:ring-2 focus:ring-[#6C2AA6] focus:outline-none transition-all"
                       />
                     </div>
                     <button
                       type="submit"
                       disabled={isLoading}
-                      className="w-full py-3 bg-[#35115A] hover:bg-[#6C2AA6] text-white font-semibold rounded-xl text-sm transition-colors flex items-center justify-center space-x-2 disabled:opacity-50"
+                      className="w-full py-3.5 bg-[#35115A] hover:bg-[#6C2AA6] text-white font-bold rounded-2xl text-sm transition-all shadow-md flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer"
                     >
                       {isLoading ? (
                         <Loader2 className="w-5 h-5 animate-spin" />
@@ -313,10 +319,17 @@ export default function LoginPage() {
               </div>
             )}
 
-            {/* Security Notice Footer */}
-            <div className="pt-4 border-t border-slate-100 text-center text-xs text-slate-500">
-              <p>Hanya akun email terdaftar & aktif yang dapat mengakses sistem.</p>
-              <p className="mt-1 font-mono text-[10px] text-slate-400">Firebase Auth & HttpOnly Server Session Enforced</p>
+            {/* Security Guarantee Notice */}
+            <div className="pt-5 border-t border-slate-100 text-center text-xs text-slate-500 space-y-1">
+              <div className="flex items-center justify-center space-x-1.5 text-slate-400">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <span className="font-mono text-[10px] uppercase tracking-wider font-semibold">
+                  Firebase Auth & HttpOnly Server Session Enforced
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Hanya akun terdaftar & aktif yang dapat mengakses sistem.
+              </p>
             </div>
           </div>
         )}
