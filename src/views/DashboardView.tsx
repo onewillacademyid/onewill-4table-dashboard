@@ -130,32 +130,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     <div className="space-y-6 text-slate-900 font-sans">
       {/* 1. Header & Filter Control Bar */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-2xs">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-[#F4EFFA] text-[#6C2AA6] border border-[#ebdcf9]">
-              Pekan {selectedWeek} • {selectedYear}
-            </span>
-            <span className="text-xs text-slate-500 font-medium">{weekInfo.label}</span>
-          </div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#35115A] mt-1">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#35115A] leading-snug break-words">
             Ringkasan eksekutif mingguan
           </h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Kepatuhan pelaporan 4 tabel, kendala kritis, dan antrean persetujuan.
+          <p className="text-xs sm:text-sm text-slate-500 mt-1 leading-normal break-words">
+            Monitoring kepatuhan pelaporan 4 tabel, kendala kritis, dan antrean persetujuan.
           </p>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          {/* Week Selector */}
-          <div className="flex items-center justify-between sm:justify-start gap-2 bg-slate-50 border border-slate-200 px-3 min-h-[44px] rounded-xl text-xs">
-            <div className="flex items-center gap-1.5 text-slate-600">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full lg:w-auto shrink-0">
+          {/* Period Selector */}
+          <div className="flex items-center justify-between sm:justify-start gap-2 bg-slate-50 border border-slate-200 px-3.5 min-h-[44px] rounded-xl text-xs w-full sm:w-auto">
+            <div className="flex items-center gap-1.5 text-slate-600 shrink-0">
               <Calendar className="w-4 h-4 text-slate-500" />
               <span className="font-semibold text-slate-700">Periode:</span>
             </div>
             <select
               value={selectedWeek}
               onChange={(e) => setSelectedWeek(Number(e.target.value))}
-              className="bg-transparent font-semibold text-[#35115A] focus:outline-hidden cursor-pointer h-full py-2.5"
+              className="bg-transparent font-semibold text-[#35115A] focus:outline-hidden cursor-pointer py-2 text-xs truncate max-w-[180px] sm:max-w-none"
             >
               {availableWeeks.map((wn) => {
                 const info = getWeekDates(wn, selectedYear);
@@ -169,15 +163,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           {/* Team Filter */}
-          <div className="flex items-center justify-between sm:justify-start gap-2 bg-slate-50 border border-slate-200 px-3 min-h-[44px] rounded-xl text-xs">
-            <div className="flex items-center gap-1.5 text-slate-600">
+          <div className="flex items-center justify-between sm:justify-start gap-2 bg-slate-50 border border-slate-200 px-3.5 min-h-[44px] rounded-xl text-xs w-full sm:w-auto">
+            <div className="flex items-center gap-1.5 text-slate-600 shrink-0">
               <Filter className="w-4 h-4 text-slate-500" />
               <span className="font-semibold text-slate-700">Divisi:</span>
             </div>
             <select
               value={selectedTeam}
               onChange={(e) => setSelectedTeam(e.target.value)}
-              className="bg-transparent font-semibold text-[#35115A] focus:outline-hidden cursor-pointer h-full py-2.5"
+              className="bg-transparent font-semibold text-[#35115A] focus:outline-hidden cursor-pointer py-2 text-xs truncate max-w-[180px] sm:max-w-none"
             >
               <option value="ALL">Semua divisi ({DEMO_TEAMS.length})</option>
               {DEMO_TEAMS.map((t) => (

@@ -5,9 +5,11 @@
  * Local-Development-Only interactive UI preview studio for inspecting all authenticated
  * dashboard screens, 4-Table reporting grids, and admin views using synthetic mock data.
  * All actions are simulated locally without side effects or backend API calls.
+ * Uses isolated iframe viewport rendering for accurate device media query simulation.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { DashboardView } from '@/views/DashboardView';
 import { ReportsListView } from '@/views/ReportsListView';
 import { ReportDetailView } from '@/views/ReportDetailView';
@@ -32,6 +34,66 @@ type PreviewScreen =
 
 type ViewportMode = 'responsive' | 'desktop' | 'tablet' | 'mobile';
 
+/**
+ * Isolated Iframe Viewport Simulator
+ * Ensures @media (min-width) queries respond to the target device width, not the outer window.
+ */
+function IframeViewport({ 
+  children, 
+  width, 
+  className 
+}: { 
+  children: React.ReactNode; 
+  width: string; 
+  className?: string;
+}) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [mountNode, setMountNode] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!iframeRef.current) return;
+    const doc = iframeRef.current.contentDocument;
+    if (!doc) return;
+
+    doc.open();
+    doc.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        </head>
+        <body class="bg-slate-50 text-slate-900 font-sans antialiased m-0 p-4 sm:p-6 overflow-y-auto">
+          <div id="preview-root"></div>
+        </body>
+      </html>
+    `);
+    doc.close();
+
+    // Copy all style elements from host document into iframe
+    const styleElements = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'));
+    styleElements.forEach((el) => {
+      doc.head.appendChild(el.cloneNode(true));
+    });
+
+    const root = doc.getElementById('preview-root');
+    setMountNode(root);
+  }, [width]);
+
+  return (
+    <div className="w-full flex justify-center overflow-x-auto py-4">
+      <iframe
+        ref={iframeRef}
+        style={{ width, height: '85vh' }}
+        className={`border border-slate-700/60 rounded-2xl shadow-2xl bg-slate-50 transition-all duration-300 ${className || ''}`}
+        title="Design Preview Viewport"
+      >
+        {mountNode && createPortal(children, mountNode)}
+      </iframe>
+    </div>
+  );
+}
+
 export function DesignPreviewClient() {
   const [activeScreen, setActiveScreen] = useState<PreviewScreen>('dashboard');
   const [viewportMode, setViewportMode] = useState<ViewportMode>('responsive');
@@ -47,34 +109,88 @@ export function DesignPreviewClient() {
     loadSample();
   }, [selectedReportId]);
 
-  const getViewportWidthClass = () => {
-    switch (viewportMode) {
-      case 'desktop': return 'max-w-[1440px] mx-auto border-x border-slate-300 shadow-2xl';
-      case 'tablet': return 'max-w-[768px] mx-auto border-x border-slate-300 shadow-2xl';
-      case 'mobile': return 'max-w-[390px] mx-auto border-x border-slate-300 shadow-2xl';
-      default: return 'w-full';
-    }
-  };
+  const renderActiveScreenContent = () => (
+    <>
+      {activeScreen === 'dashboard' && (
+        <DashboardView
+          onOpenReport={(id) => { setSelectedReportId(id); setActiveScreen('report-detail'); }}
+          onNewReport={() => setActiveScreen('report-editor')}
+          onNavigateToReviews={() => setActiveScreen('reviews-queue')}
+        />
+      )}
+
+      {activeScreen === 'four-table' && sampleReport && (
+        <div className="p-4 sm:p-6 space-y-6">
+          <div className="border-b border-slate-200 pb-4">
+            <h2 className="text-xl font-bold text-[#35115A]">Matriks pelaporan 4-tabel (Bento Grid)</h2>
+            <p className="text-xs text-slate-500 font-medium mt-0.5">Tata letak 2x2 desktop dan 1 kolom bertumpuk pada mobile.</p>
+          </div>
+          <FourTableGrid
+            sections={sampleReport.sections}
+            onChange={() => {}}
+            readOnly={true}
+          />
+        </div>
+      )}
+
+      {activeScreen === 'reports-list' && (
+        <ReportsListView
+          onOpenReport={(id) => { setSelectedReportId(id); setActiveScreen('report-detail'); }}
+          onNewReport={() => setActiveScreen('report-editor')}
+        />
+      )}
+
+      {activeScreen === 'report-detail' && (
+        <ReportDetailView
+          reportId={selectedReportId}
+          onBack={() => setActiveScreen('reports-list')}
+          onEdit={() => setActiveScreen('report-editor')}
+        />
+      )}
+
+      {activeScreen === 'report-editor' && (
+        <ReportEditorView
+          reportId={selectedReportId}
+          onBack={() => setActiveScreen('reports-list')}
+          onSaved={() => setActiveScreen('report-detail')}
+        />
+      )}
+
+      {activeScreen === 'reviews-queue' && (
+        <ReviewsQueueView
+          onOpenReport={(id) => { setSelectedReportId(id); setActiveScreen('report-detail'); }}
+        />
+      )}
+
+      {activeScreen === 'admin-users' && (
+        <AdminUsersView />
+      )}
+
+      {activeScreen === 'admin-integrations' && (
+        <AdminIntegrationsView />
+      )}
+    </>
+  );
 
   return (
     <div className="w-full min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
-      {/* Top Banner: Local Development Preview Indicator */}
-      <div className="bg-gradient-to-r from-amber-600 via-purple-700 to-[#35115A] text-white text-xs px-4 py-2 flex items-center justify-between shadow-md">
+      {/* Studio Header Banner: Compact & Professional */}
+      <div className="bg-slate-950 border-b border-slate-800 text-xs px-4 py-2 flex items-center justify-between shadow-xs">
         <div className="flex items-center space-x-2">
-          <ShieldAlert className="w-4 h-4 text-amber-300 animate-pulse" />
-          <span className="font-extrabold uppercase tracking-widest text-[11px]">
-            DEVELOPMENT PREVIEW STUDIO • LOCAL DEV ONLY
+          <ShieldAlert className="w-4 h-4 text-amber-400" />
+          <span className="font-bold tracking-wide text-amber-200 text-[11px]">
+            PREVIEW STUDIO • LOKAL DEV ONLY
           </span>
-          <span className="hidden sm:inline text-amber-200/80">• Data Simulasi Terisolasi (Tanpa Efek Samping API)</span>
+          <span className="hidden sm:inline text-slate-400 text-[11px]">• Data Simulasi Terisolasi</span>
         </div>
-        <div className="flex items-center space-x-1 text-[11px] font-mono text-amber-100/90">
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>Swiss + Bento UI Redesign Preview</span>
+        <div className="flex items-center space-x-1.5 text-[11px] font-medium text-slate-300">
+          <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+          <span>Swiss + Bento Redesign</span>
         </div>
       </div>
 
-      {/* Control Bar: Screen Tabs & Viewport Switcher */}
-      <div className="bg-slate-800 border-b border-slate-700 p-3 px-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 text-xs">
+      {/* Control Bar: Compact Screen Tabs & Viewport Switcher */}
+      <div className="bg-slate-800/90 border-b border-slate-700/80 p-2.5 px-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5 text-xs">
         {/* Mobile Dropdown Navigation Selector */}
         <div className="block md:hidden">
           <label htmlFor="preview-screen-select" className="sr-only">Pilih Layar Pratinjau</label>
@@ -82,13 +198,13 @@ export function DesignPreviewClient() {
             id="preview-screen-select"
             value={activeScreen}
             onChange={(e) => setActiveScreen(e.target.value as PreviewScreen)}
-            className="w-full bg-slate-900 border border-slate-700 text-white text-xs font-semibold px-3 py-2.5 rounded-xl min-h-[44px] cursor-pointer"
+            className="w-full bg-slate-900 border border-slate-700 text-white text-xs font-semibold px-3 py-2 rounded-xl min-h-[44px] cursor-pointer"
           >
             <option value="dashboard">📊 Dashboard Utama</option>
             <option value="four-table">📋 Grid 4-Tabel Bento</option>
             <option value="reports-list">📂 Daftar Laporan</option>
             <option value="report-detail">🔍 Rincian Laporan</option>
-            <option value="report-editor">✏-[#] Editor Laporan</option>
+            <option value="report-editor">✏️ Editor Laporan</option>
             <option value="reviews-queue">⏳ Antrean Tinjauan</option>
             <option value="admin-users">👥 Kelola Pengguna</option>
             <option value="admin-integrations">🔗 Integrasi Drive</option>
@@ -96,7 +212,7 @@ export function DesignPreviewClient() {
         </div>
 
         {/* Desktop & Tablet Pill Navigation */}
-        <div className="hidden md:flex items-center space-x-1.5 overflow-x-auto pb-1 md:pb-0">
+        <div className="hidden md:flex items-center space-x-1 overflow-x-auto pb-1 md:pb-0">
           {[
             { id: 'dashboard', label: '📊 Dashboard' },
             { id: 'four-table', label: '📋 Grid 4-Tabel' },
@@ -110,10 +226,10 @@ export function DesignPreviewClient() {
             <button
               key={tab.id}
               onClick={() => setActiveScreen(tab.id as PreviewScreen)}
-              className={`px-3 py-2 rounded-xl font-semibold transition-all whitespace-nowrap cursor-pointer min-h-[38px] flex items-center ${
+              className={`px-3 py-1.5 rounded-lg font-medium transition-all whitespace-nowrap cursor-pointer text-xs ${
                 activeScreen === tab.id
-                  ? 'bg-[#6C2AA6] text-white shadow-xs'
-                  : 'bg-slate-700/60 text-slate-300 hover:bg-slate-700 hover:text-white'
+                  ? 'bg-[#6C2AA6] text-white font-semibold shadow-xs'
+                  : 'bg-slate-700/50 text-slate-300 hover:bg-slate-700 hover:text-white'
               }`}
             >
               {tab.label}
@@ -122,44 +238,48 @@ export function DesignPreviewClient() {
         </div>
 
         {/* Viewport Width Controls */}
-        <div className="flex items-center justify-between sm:justify-end space-x-1 bg-slate-900/80 p-1.5 rounded-xl border border-slate-700">
-          <span className="text-[11px] text-slate-400 font-semibold px-2">Lebar layar:</span>
+        <div className="flex items-center justify-between sm:justify-end space-x-2 bg-slate-900/90 px-2 py-1 rounded-xl border border-slate-700/80">
+          <span className="text-[11px] text-slate-400 font-medium px-1">Simulasi Layar:</span>
           <div className="flex items-center space-x-1">
             <button
               onClick={() => setViewportMode('responsive')}
               title="Responsif Penuh"
-              className={`p-2 rounded-lg transition-colors cursor-pointer min-h-[38px] min-w-[38px] flex items-center justify-center ${
+              className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1 min-h-[36px] ${
                 viewportMode === 'responsive' ? 'bg-[#6C2AA6] text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
-              <Layers className="w-4 h-4" />
+              <Layers className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Penuh</span>
             </button>
             <button
               onClick={() => setViewportMode('desktop')}
               title="Desktop 1440px"
-              className={`p-2 rounded-lg transition-colors cursor-pointer min-h-[38px] min-w-[38px] flex items-center justify-center ${
+              className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1 min-h-[36px] ${
                 viewportMode === 'desktop' ? 'bg-[#6C2AA6] text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
-              <Monitor className="w-4 h-4" />
+              <Monitor className="w-3.5 h-3.5" />
+              <span>1440px</span>
             </button>
             <button
               onClick={() => setViewportMode('tablet')}
               title="Tablet 768px"
-              className={`p-2 rounded-lg transition-colors cursor-pointer min-h-[38px] min-w-[38px] flex items-center justify-center ${
+              className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1 min-h-[36px] ${
                 viewportMode === 'tablet' ? 'bg-[#6C2AA6] text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
-              <Tablet className="w-4 h-4" />
+              <Tablet className="w-3.5 h-3.5" />
+              <span>768px</span>
             </button>
             <button
               onClick={() => setViewportMode('mobile')}
               title="Mobile 390px"
-              className={`p-2 rounded-lg transition-colors cursor-pointer min-h-[38px] min-w-[38px] flex items-center justify-center ${
+              className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1 min-h-[36px] ${
                 viewportMode === 'mobile' ? 'bg-[#6C2AA6] text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
-              <Smartphone className="w-4 h-4" />
+              <Smartphone className="w-3.5 h-3.5" />
+              <span>390px</span>
             </button>
           </div>
         </div>
@@ -167,66 +287,23 @@ export function DesignPreviewClient() {
 
       {/* Screen Render Container */}
       <div className="flex-1 p-4 sm:p-6 bg-slate-950 overflow-y-auto">
-        <div className={`transition-all duration-300 bg-slate-50 text-slate-900 rounded-2xl min-h-[85vh] ${getViewportWidthClass()}`}>
-          {activeScreen === 'dashboard' && (
-            <DashboardView
-              onOpenReport={(id) => { setSelectedReportId(id); setActiveScreen('report-detail'); }}
-              onNewReport={() => setActiveScreen('report-editor')}
-              onNavigateToReviews={() => setActiveScreen('reviews-queue')}
-            />
-          )}
-
-          {activeScreen === 'four-table' && sampleReport && (
-            <div className="p-6 space-y-6">
-              <div className="border-b border-slate-200 pb-4">
-                <h2 className="text-xl font-black text-[#35115A]">Pratinjau Komponen Grid 4-Tabel (Bento Grid)</h2>
-                <p className="text-xs text-slate-500 font-medium">Capaian, Kendala, Sasaran, dan Dukungan dalam Tata Letak 2x2 Bento Grid.</p>
-              </div>
-              <FourTableGrid
-                sections={sampleReport.sections}
-                onChange={() => {}}
-                readOnly={true}
-              />
-            </div>
-          )}
-
-          {activeScreen === 'reports-list' && (
-            <ReportsListView
-              onOpenReport={(id) => { setSelectedReportId(id); setActiveScreen('report-detail'); }}
-              onNewReport={() => setActiveScreen('report-editor')}
-            />
-          )}
-
-          {activeScreen === 'report-detail' && (
-            <ReportDetailView
-              reportId={selectedReportId}
-              onBack={() => setActiveScreen('reports-list')}
-              onEdit={() => setActiveScreen('report-editor')}
-            />
-          )}
-
-          {activeScreen === 'report-editor' && (
-            <ReportEditorView
-              reportId={selectedReportId}
-              onBack={() => setActiveScreen('reports-list')}
-              onSaved={() => setActiveScreen('report-detail')}
-            />
-          )}
-
-          {activeScreen === 'reviews-queue' && (
-            <ReviewsQueueView
-              onOpenReport={(id) => { setSelectedReportId(id); setActiveScreen('report-detail'); }}
-            />
-          )}
-
-          {activeScreen === 'admin-users' && (
-            <AdminUsersView />
-          )}
-
-          {activeScreen === 'admin-integrations' && (
-            <AdminIntegrationsView />
-          )}
-        </div>
+        {viewportMode === 'responsive' ? (
+          <div className="w-full bg-slate-50 text-slate-900 rounded-2xl min-h-[85vh] p-4 sm:p-6">
+            {renderActiveScreenContent()}
+          </div>
+        ) : (
+          <IframeViewport
+            width={
+              viewportMode === 'desktop'
+                ? '1440px'
+                : viewportMode === 'tablet'
+                ? '768px'
+                : '390px'
+            }
+          >
+            {renderActiveScreenContent()}
+          </IframeViewport>
+        )}
       </div>
     </div>
   );
