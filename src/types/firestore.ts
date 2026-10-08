@@ -15,6 +15,7 @@ export interface FirestoreUserDocument {
   teamId: string;
   invitedEmail: string;
   createdAt: string; // ISO String or Server Timestamp representation
+  updatedAt?: string; // ISO String or Server Timestamp representation
   lastLoginAt: string; // ISO String or Server Timestamp representation
 }
 
