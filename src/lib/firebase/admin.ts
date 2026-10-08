@@ -18,8 +18,8 @@ let adminApp: App | undefined;
 
 /**
  * Returns lazy-initialized Firebase Admin App.
- * Prefers explicit service account credentials from environment variables.
- * Falls back to Application Default Credentials (ADC) if running in Google Cloud.
+ * Prefers explicit service account credentials from environment variables if valid.
+ * Falls back to Application Default Credentials (ADC) if running in Google Cloud or CLI ADC.
  */
 export function getAdminApp(): App {
   if (adminApp) {
@@ -31,13 +31,19 @@ export function getAdminApp(): App {
     return adminApp;
   }
 
-  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+  const projectId =
+    process.env.FIREBASE_PROJECT_ID ||
+    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
+    'onewill-academy-weekly-report';
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
   const privateKey = process.env.FIREBASE_PRIVATE_KEY
     ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
     : undefined;
 
-  if (projectId && clientEmail && privateKey) {
+  const isPlaceholderKey = !privateKey || privateKey.includes('YOUR_PRIVATE_KEY_HERE');
+  const isPlaceholderEmail = !clientEmail || clientEmail.includes('xxxxx');
+
+  if (projectId && clientEmail && privateKey && !isPlaceholderKey && !isPlaceholderEmail) {
     adminApp = initializeApp({
       credential: cert({
         projectId,
@@ -47,7 +53,7 @@ export function getAdminApp(): App {
       projectId,
     });
   } else {
-    // Fallback for ADC / App Hosting / Cloud Run environment
+    // Fallback for Application Default Credentials (ADC) / App Hosting / Cloud Run environment
     adminApp = initializeApp({
       projectId,
     });
