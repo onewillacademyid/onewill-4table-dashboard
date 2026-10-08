@@ -1,16 +1,8 @@
-'use client';
+import { requireServerAuth } from '@/lib/auth/protected-route-guard';
+import { HomePageClient } from '@/components/HomePageClient';
 
-import { useRouter } from 'next/navigation';
-import { DashboardView } from '@/views/DashboardView';
-
-export default function HomePage() {
-  const router = useRouter();
-
-  return (
-    <DashboardView
-      onOpenReport={(reportId) => router.push(`/reports/${reportId}`)}
-      onNewReport={() => router.push('/reports/new')}
-      onNavigateToReviews={() => router.push('/reviews')}
-    />
-  );
+export default async function HomePage() {
+  // Server-enforced session verification for home route
+  await requireServerAuth();
+  return <HomePageClient />;
 }

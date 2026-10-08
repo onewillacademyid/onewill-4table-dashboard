@@ -1,7 +1,7 @@
 /**
  * Onewill Academy | Server Auth & Session Verification Utilities
  * Strictly server-only. Handles Firebase ID token exchange, HttpOnly session cookie verification,
- * CSRF validation, and trusted Firestore User Registry authorization via atomic transactions.
+ * CSRF validation against explicitly configured trusted origins, and trusted Firestore User Registry authorization.
  */
 
 import { getAdminAuth, getAdminDb } from '@/lib/firebase/admin';
@@ -22,60 +22,73 @@ export interface ServerAuthResult {
 }
 
 /**
- * Validates request origin/referer header against explicitly configured trusted application origins.
- * Supports reverse proxies (x-forwarded-host), APP_URL, and local development.
+ * Validates request origin/referer header against EXPLICITLY CONFIGURED trusted application origins.
+ * NEVER adds arbitrary request Host or X-Forwarded-Host headers to the allowlist.
+ * Fails closed if origins do not match configured trusted origins.
  */
 export function validateCsrfOrigin(request: Request): boolean {
   const origin = request.headers.get('origin');
   const referer = request.headers.get('referer');
-  const host = request.headers.get('x-forwarded-host') || request.headers.get('host');
-  const appUrl = process.env.APP_URL;
 
-  const allowedHosts = new Set<string>();
-
-  if (host) {
-    allowedHosts.add(host.toLowerCase());
+  // Must have either Origin or Referer for state-changing POST requests
+  if (!origin && !referer) {
+    return false;
   }
 
-  if (appUrl) {
+  const trustedOrigins = new Set<string>();
+
+  // Explicitly configured APP_URL
+  if (process.env.APP_URL) {
     try {
-      allowedHosts.add(new URL(appUrl).host.toLowerCase());
+      const parsed = new URL(process.env.APP_URL);
+      trustedOrigins.add(parsed.origin.toLowerCase());
     } catch {
-      // ignore invalid appUrl format
+      // Invalid APP_URL format
     }
   }
 
-  // Trusted development origins
-  allowedHosts.add('localhost:3000');
-  allowedHosts.add('127.0.0.1:3000');
-  allowedHosts.add('0.0.0.0:3000');
+  // Explicitly configured Vercel deployment URL
+  const vercelUrl = process.env.VERCEL_URL || process.env.NEXT_PUBLIC_VERCEL_URL;
+  if (vercelUrl) {
+    try {
+      const formatted = vercelUrl.startsWith('http') ? vercelUrl : `https://${vercelUrl}`;
+      const parsed = new URL(formatted);
+      trustedOrigins.add(parsed.origin.toLowerCase());
+    } catch {
+      // Invalid VERCEL_URL format
+    }
+  }
 
-  const checkUrlHost = (urlStr: string | null): boolean => {
+  // Trusted local development origins
+  trustedOrigins.add('http://localhost:3000');
+  trustedOrigins.add('http://127.0.0.1:3000');
+  trustedOrigins.add('http://0.0.0.0:3000');
+
+  const isTrustedOriginUrl = (urlStr: string | null): boolean => {
     if (!urlStr) return false;
     try {
-      const parsedHost = new URL(urlStr).host.toLowerCase();
-      return allowedHosts.has(parsedHost);
+      const parsedOrigin = new URL(urlStr).origin.toLowerCase();
+      return trustedOrigins.has(parsedOrigin);
     } catch {
       return false;
     }
   };
 
-  if (origin) {
-    return checkUrlHost(origin);
+  if (origin && !isTrustedOriginUrl(origin)) {
+    return false;
   }
 
-  if (referer) {
-    return checkUrlHost(referer);
+  if (referer && !isTrustedOriginUrl(referer)) {
+    return false;
   }
 
-  return false;
+  return true;
 }
 
 /**
  * Atomically verifies or provisions user record in Firestore users/{uid} using db.runTransaction().
- * - Checks users/{uid} for active account status.
- * - If new user, checks invitations/{id} for single-use PENDING invitation matching normalized email.
- * - Prevents race conditions and duplicate invitation acceptance via transactional locks.
+ * - Locks user record and pending invitation queries inside the transaction.
+ * - Single-use invitation matching prevents race conditions under concurrent requests.
  * - Role & team are strictly derived from invitation record (NEVER client input).
  * - PROHIBITED: Automatic Super Admin assignment.
  */
@@ -119,32 +132,24 @@ export async function syncOrVerifyUserRegistry(
       return { userDoc: { ...userData, lastLoginAt: now } };
     }
 
-    // Search for single-use pending invitation matching email
+    // Perform transactional query for pending invitation matching email
     const invitationsRef = db.collection('invitations');
-    const invitationQuery = await invitationsRef
+    const invitationQuery = invitationsRef
       .where('normalizedEmail', '==', normalizedEmail)
       .where('status', '==', 'PENDING')
-      .limit(1)
-      .get();
+      .limit(1);
 
-    if (invitationQuery.empty) {
+    const invitationQuerySnap = await transaction.get(invitationQuery);
+
+    if (invitationQuerySnap.empty) {
       return {
         error: 'Email Anda belum terdaftar dalam undangan akses Onewill Academy.',
         code: 'UNINVITED',
       };
     }
 
-    const invitationDoc = invitationQuery.docs[0];
-    const invitationSnap = await transaction.get(invitationDoc.ref);
-
-    if (!invitationSnap.exists) {
-      return {
-        error: 'Undangan akses tidak ditemukan.',
-        code: 'UNINVITED',
-      };
-    }
-
-    const invitation = invitationSnap.data() as FirestoreInvitationDocument;
+    const invitationDoc = invitationQuerySnap.docs[0];
+    const invitation = invitationDoc.data() as FirestoreInvitationDocument;
 
     if (invitation.status !== 'PENDING') {
       return {
