@@ -1,10 +1,13 @@
 'use client';
 
 /**
- * DashboardView Component
- * Executive overview with period selector, expected vs received report KPIs,
- * issues by severity, outstanding support, awaiting reviews, overdue objectives,
- * and recent report list with responsive layout.
+ * DashboardView Component (Executive Information Architecture v3)
+ * Designed for business owners and management to answer:
+ * 1. What happened this week? (Weekly Summary & Submission Rate)
+ * 2. What is progressing? (Report Completion Metrics)
+ * 3. What is blocked? (Critical Issues & Mitigation Status)
+ * 4. What needs my approval? (Pending Review Queue)
+ * 5. Who is responsible for the next action? (Report Records & Team Authors)
  */
 
 import React, { useState, useEffect } from 'react';
@@ -19,7 +22,8 @@ import {
   Filter, 
   ChevronRight, 
   FileText,
-  Users
+  UserCheck,
+  ArrowRight
 } from 'lucide-react';
 import { WeeklyReport, DashboardMetrics } from '../types';
 import { reportRepository, DEMO_TEAMS } from '../services/reportRepository';
@@ -87,7 +91,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return Array.from(weekSet).sort((a, b) => b - a);
   }, [allReports]);
 
-  // Aggregate critical and high issues for drill-down
+  // Aggregate critical and high issues for immediate executive view
   const criticalAndHighIssues = React.useMemo(() => {
     const list: Array<{ report: WeeklyReport; issue: any }> = [];
     recentReports.forEach((r) => {
@@ -102,7 +106,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return list;
   }, [recentReports]);
 
-  // Aggregate pending support requests for drill-down
+  // Aggregate pending support requests
   const pendingSupportRequests = React.useMemo(() => {
     const list: Array<{ report: WeeklyReport; support: any }> = [];
     recentReports.forEach((r) => {
@@ -123,27 +127,35 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   });
 
   return (
-    <div className="space-y-6">
-      {/* Top Filter & Period Control Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200">
+    <div className="space-y-6 text-slate-900 font-sans">
+      {/* 1. Header & Filter Control Bar */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-2xs">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-[#35115A]">
-            Ringkasan Eksekutif Mingguan
+          <div className="flex items-center gap-2">
+            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-[#F4EFFA] text-[#6C2AA6] border border-[#ebdcf9]">
+              Pekan {selectedWeek} • {selectedYear}
+            </span>
+            <span className="text-xs text-slate-500 font-medium">{weekInfo.label}</span>
+          </div>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#35115A] mt-1">
+            Ringkasan eksekutif mingguan
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Monitoring progres 4 tabel dan evaluasi kinerja lintas divisi
+          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+            Kepatuhan pelaporan 4 tabel, kendala kritis, dan antrean persetujuan.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           {/* Week Selector */}
-          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs">
-            <Calendar className="w-3.5 h-3.5 text-slate-500" />
-            <span className="font-semibold text-slate-700">Periode:</span>
+          <div className="flex items-center justify-between sm:justify-start gap-2 bg-slate-50 border border-slate-200 px-3 min-h-[44px] rounded-xl text-xs">
+            <div className="flex items-center gap-1.5 text-slate-600">
+              <Calendar className="w-4 h-4 text-slate-500" />
+              <span className="font-semibold text-slate-700">Periode:</span>
+            </div>
             <select
               value={selectedWeek}
               onChange={(e) => setSelectedWeek(Number(e.target.value))}
-              className="bg-transparent font-medium text-[#35115A] focus:outline-hidden cursor-pointer"
+              className="bg-transparent font-semibold text-[#35115A] focus:outline-hidden cursor-pointer h-full py-2.5"
             >
               {availableWeeks.map((wn) => {
                 const info = getWeekDates(wn, selectedYear);
@@ -157,15 +169,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           {/* Team Filter */}
-          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs">
-            <Filter className="w-3.5 h-3.5 text-slate-500" />
-            <span className="font-semibold text-slate-700">Divisi:</span>
+          <div className="flex items-center justify-between sm:justify-start gap-2 bg-slate-50 border border-slate-200 px-3 min-h-[44px] rounded-xl text-xs">
+            <div className="flex items-center gap-1.5 text-slate-600">
+              <Filter className="w-4 h-4 text-slate-500" />
+              <span className="font-semibold text-slate-700">Divisi:</span>
+            </div>
             <select
               value={selectedTeam}
               onChange={(e) => setSelectedTeam(e.target.value)}
-              className="bg-transparent font-medium text-[#35115A] focus:outline-hidden cursor-pointer"
+              className="bg-transparent font-semibold text-[#35115A] focus:outline-hidden cursor-pointer h-full py-2.5"
             >
-              <option value="ALL">Semua Divisi ({DEMO_TEAMS.length})</option>
+              <option value="ALL">Semua divisi ({DEMO_TEAMS.length})</option>
               {DEMO_TEAMS.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
@@ -176,10 +190,132 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* KPI Cards Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* 2. Executive Key Questions Layout (Bento Priorities) */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+        {/* Left Column (2 cols on Desktop): Question 3 - What is blocked? */}
+        <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200/80 p-4 sm:p-5 shadow-2xs space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100 flex-wrap gap-2">
+            <div>
+              <div className="flex items-center gap-2">
+                <Flame className="w-4 h-4 text-rose-600" />
+                <h2 className="text-sm font-bold text-slate-900">
+                  Kendala kritis & perhatian utama
+                </h2>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Poin terkendala yang membutuhkan penanganan atau mitigasi tingkat manajemen.
+              </p>
+            </div>
+            {criticalAndHighIssues.length > 0 && (
+              <button
+                onClick={() => setDrilldownType('CRITICAL_ISSUES')}
+                className="text-xs font-semibold text-[#6C2AA6] hover:underline cursor-pointer py-1 min-h-[44px] flex items-center"
+              >
+                Lihat semua ({criticalAndHighIssues.length}) →
+              </button>
+            )}
+          </div>
+
+          {criticalAndHighIssues.length === 0 ? (
+            <div className="p-6 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+              <CheckCircle className="w-8 h-8 text-emerald-500 mx-auto mb-2 opacity-80" />
+              <p className="text-xs font-semibold text-slate-800">Tidak ada kendala kritis pekan ini</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Semua divisi berjalan sesuai target tanpa adanya eskalasi darurat.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {criticalAndHighIssues.slice(0, 3).map(({ report, issue }, idx) => (
+                <div
+                  key={idx}
+                  onClick={() => onOpenReport(report.id)}
+                  className="p-3.5 rounded-xl border border-slate-200/80 bg-slate-50/50 hover:bg-white hover:border-[#6C2AA6]/40 hover:shadow-2xs transition-all cursor-pointer space-y-2"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <StatusBadge type="severity" value={issue.severity} size="sm" />
+                      <StatusBadge type="issue-state" value={issue.state} size="sm" />
+                      <span className="font-semibold text-slate-900 text-xs sm:text-sm">
+                        {issue.title}
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-medium text-slate-500">
+                      {report.teamName}
+                    </span>
+                  </div>
+
+                  {issue.businessImpact && (
+                    <p className="text-xs text-slate-600 line-clamp-2">
+                      <span className="font-semibold text-slate-700">Dampak:</span> {issue.businessImpact}
+                    </p>
+                  )}
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-200/60 text-[11px] text-slate-500">
+                    <div className="flex items-center gap-3">
+                      <span><strong>Penanggung jawab:</strong> {issue.owner || report.authorName}</span>
+                      {issue.targetResolutionDate && (
+                        <span><strong>Target:</strong> {issue.targetResolutionDate}</span>
+                      )}
+                    </div>
+                    <span className="text-[#6C2AA6] font-semibold flex items-center gap-1">
+                      Buka rincian <ChevronRight className="w-3 h-3" />
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Right Column (1 col on Desktop): Question 4 - What needs my approval? */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 p-4 sm:p-5 shadow-2xs flex flex-col justify-between space-y-4">
+          <div>
+            <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+              <Clock className="w-4 h-4 text-amber-600" />
+              <h2 className="text-sm font-bold text-slate-900">
+                Persetujuan & tinjauan tertunda
+              </h2>
+            </div>
+
+            <div className="mt-4 p-4 rounded-xl bg-amber-50/60 border border-amber-200/80 space-y-2">
+              <div className="flex items-baseline justify-between">
+                <span className="text-xs font-semibold text-amber-900">Laporan diajukan</span>
+                <span className="text-2xl font-bold tabular-nums text-amber-900">
+                  {metrics?.pendingReviewsCount || 0}
+                </span>
+              </div>
+              <p className="text-xs text-amber-800/90 leading-relaxed">
+                Laporan dari kepala divisi yang memerlukan verifikasi dan persetujuan atasan sebelum diarsipkan.
+              </p>
+            </div>
+
+            <div className="mt-4 space-y-2 text-xs text-slate-600">
+              <div className="flex items-center justify-between text-[11px] py-1 border-b border-slate-100">
+                <span className="text-slate-500">Pengguna aktif</span>
+                <span className="font-semibold text-slate-800">{currentUser.name}</span>
+              </div>
+              <div className="flex items-center justify-between text-[11px] py-1 border-b border-slate-100">
+                <span className="text-slate-500">Dukungan tertunda</span>
+                <span className="font-semibold text-slate-800">{metrics?.outstandingSupportCount || 0} permohonan</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-2">
+            <button
+              onClick={onNavigateToReviews}
+              className="w-full min-h-[44px] py-2.5 px-4 bg-[#35115A] hover:bg-[#6C2AA6] text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-2xs"
+            >
+              <span>Buka antrean tinjauan</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. Responsive KPI Cards Grid (1 column on mobile, 2 sm, 4 lg) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
-          label="Laporan Diterima"
+          label="Laporan diterima"
           value={
             metrics
               ? `${metrics.totalReceivedReports} / ${metrics.totalExpectedReports}`
@@ -187,8 +323,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           }
           subtext={
             metrics
-              ? `Tingkat kepatuhan: ${metrics.submissionRatePercent}%`
-              : 'Menghitung...'
+              ? `Tingkat kepatuhan pelaporan: ${metrics.submissionRatePercent}%`
+              : 'Memuat data...'
           }
           icon={BarChart3}
           variant="accent"
@@ -196,212 +332,75 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         />
 
         <MetricCard
-          label="Menunggu Tinjauan"
+          label="Menunggu tinjauan"
           value={metrics ? metrics.pendingReviewsCount : '-'}
-          subtext="Perlu verifikasi atasan"
+          subtext="Memerlukan verifikasi dan persetujuan atasan"
           icon={Clock}
           variant={metrics && metrics.pendingReviewsCount > 0 ? 'warning' : 'default'}
           onClick={onNavigateToReviews}
         />
 
         <MetricCard
-          label="Kendala Kritis Aktif"
+          label="Kendala kritis aktif"
           value={metrics ? metrics.criticalIssuesCount : '-'}
-          subtext={metrics ? `Total kendala: ${metrics.totalIssuesCount}` : ''}
+          subtext={metrics ? `Total kendala terdata: ${metrics.totalIssuesCount}` : ''}
           icon={Flame}
           variant={metrics && metrics.criticalIssuesCount > 0 ? 'danger' : 'default'}
           onClick={() => setDrilldownType('CRITICAL_ISSUES')}
         />
 
         <MetricCard
-          label="Dukungan Tertunda"
+          label="Dukungan tertunda"
           value={metrics ? metrics.outstandingSupportCount : '-'}
-          subtext="Eskalasi butuh otorisasi"
+          subtext="Eskalasi permohonan bantuan antar divisi"
           icon={HelpCircle}
           variant="default"
           onClick={() => setDrilldownType('SUPPORT_REQUESTS')}
         />
       </div>
 
-      {/* Secondary Insight Row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Issue Severity Breakdown */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-              Distribusi Tingkat Keparahan Kendala
-            </h2>
-            <span className="text-[11px] text-slate-500 tabular-nums">
-              Pekan {selectedWeek}
-            </span>
-          </div>
-
-          <div className="space-y-3">
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="font-medium text-red-700 flex items-center gap-1">
-                  <Flame className="w-3.5 h-3.5 text-red-600" /> Kritis (Critical)
-                </span>
-                <span className="font-bold text-slate-800 tabular-nums">
-                  {metrics ? metrics.criticalIssuesCount : 0}
-                </span>
-              </div>
-              <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-red-600 rounded-full transition-all"
-                  style={{
-                    width: `${
-                      metrics && metrics.totalIssuesCount > 0
-                        ? (metrics.criticalIssuesCount / metrics.totalIssuesCount) * 100
-                        : 0
-                    }%`,
-                  }}
-                />
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="font-medium text-orange-700 flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5 text-orange-600" /> Tinggi (High)
-                </span>
-                <span className="font-bold text-slate-800 tabular-nums">
-                  {recentReports.reduce((acc, r) => {
-                    return (
-                      acc +
-                      r.sections.issues.items.filter((i) => i.severity === 'high').length
-                    );
-                  }, 0)}
-                </span>
-              </div>
-              <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-orange-500 rounded-full transition-all"
-                  style={{ width: '40%' }}
-                />
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="font-medium text-amber-700">Sedang (Medium)</span>
-                <span className="font-bold text-slate-800 tabular-nums">
-                  {recentReports.reduce((acc, r) => {
-                    return (
-                      acc +
-                      r.sections.issues.items.filter((i) => i.severity === 'medium').length
-                    );
-                  }, 0)}
-                </span>
-              </div>
-              <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-amber-400 rounded-full transition-all"
-                  style={{ width: '30%' }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Workflow Guide & Next Action */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 flex flex-col justify-between">
+      {/* 4. Question 5 - Who is responsible for the next action? (Reports Table & Mobile Cards) */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden">
+        {/* Header & Status Filter Tabs */}
+        <div className="p-4 sm:p-5 border-b border-slate-200/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
-              Siklus Laporan Onewill
+            <h2 className="text-base font-bold text-slate-900">
+              Daftar laporan mingguan ({filteredReports.length})
             </h2>
-            <div className="text-xs text-slate-600 space-y-2">
-              <div className="flex items-center gap-2 text-[11px]">
-                <span className="px-1.5 py-0.5 rounded bg-slate-100 font-mono text-slate-700">DRAF</span>
-                <span>→</span>
-                <span className="px-1.5 py-0.5 rounded bg-amber-100 font-mono text-amber-800">DIAJUKAN</span>
-                <span>→</span>
-                <span className="px-1.5 py-0.5 rounded bg-emerald-100 font-mono text-emerald-800">DISETUJUI</span>
-              </div>
-              <p className="text-[11px] text-slate-500 leading-relaxed mt-2">
-                Laporan disetujui bersifat <strong>permanen</strong>. Perubahan pasca-persetujuan dilakukan melalui pembuatan amendemen baru (revisi naik tingkat).
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-700">Peran aktif: {currentUser.name}</span>
-            <button
-              onClick={onNewReport}
-              className="text-xs font-semibold text-[#6C2AA6] hover:text-[#35115A] hover:underline cursor-pointer"
-            >
-              + Input Laporan
-            </button>
-          </div>
-        </div>
-
-        {/* Action Callout */}
-        <div className="bg-[#F4EFFA] p-5 rounded-xl border border-[#ebdcf9] flex flex-col justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-[#35115A] mb-2">
-              <CheckCircle className="w-4 h-4 text-[#6C2AA6]" />
-              <h2 className="text-xs font-bold uppercase tracking-wider">
-                Verifikasi & Peninjauan
-              </h2>
-            </div>
-            <p className="text-xs text-[#35115A]/80 leading-relaxed">
-              Terdapat <strong>{metrics?.pendingReviewsCount || 0} laporan</strong> yang memerlukan validasi atasan divisi atau manajemen. Penulis tidak diperbolehkan menyetujui laporannya sendiri.
+            <p className="text-xs text-slate-500 mt-0.5">
+              Status pengerjaan, penulis laporan, dan tingkat revisi pekan ini.
             </p>
           </div>
 
-          <button
-            onClick={onNavigateToReviews}
-            className="mt-4 w-full py-2 px-3 bg-[#35115A] hover:bg-[#6C2AA6] text-white text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-2xs"
-          >
-            <span>Buka Antrean Tinjauan</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-
-      {/* Reports Section */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        {/* Table Filter Tabs */}
-        <div className="px-5 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-bold text-slate-900">
-              Daftar Laporan Pekan Ini ({filteredReports.length})
-            </h2>
-            <span className="text-xs text-slate-500">
-              {weekInfo.label}
-            </span>
-          </div>
-
-          {/* Interactive filter tabs */}
-          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg text-xs overflow-x-auto">
-            {['ALL', 'SUBMITTED', 'NEEDS_REVISION', 'APPROVED', 'DRAFT'].map((st) => {
-              const labelMap: Record<string, string> = {
-                ALL: 'Semua',
-                SUBMITTED: 'Menunggu Tinjauan',
-                NEEDS_REVISION: 'Perlu Revisi',
-                APPROVED: 'Disetujui',
-                DRAFT: 'Draf',
-              };
-              const isActive = statusFilter === st;
+          {/* Status Filter Tabs (Scrollable on mobile) */}
+          <div className="flex items-center gap-1.5 p-1 bg-slate-100/80 rounded-xl overflow-x-auto w-full md:w-auto">
+            {[
+              { id: 'ALL', label: 'Semua' },
+              { id: 'SUBMITTED', label: 'Menunggu Tinjauan' },
+              { id: 'NEEDS_REVISION', label: 'Perlu Revisi' },
+              { id: 'APPROVED', label: 'Disetujui' },
+              { id: 'DRAFT', label: 'Draf' },
+            ].map((st) => {
+              const isActive = statusFilter === st.id;
               return (
                 <button
-                  key={st}
-                  onClick={() => setStatusFilter(st)}
-                  className={`px-2.5 py-1 font-medium rounded-md transition-colors whitespace-nowrap cursor-pointer ${
+                  key={st.id}
+                  onClick={() => setStatusFilter(st.id)}
+                  className={`min-h-[44px] px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap cursor-pointer flex items-center ${
                     isActive
-                      ? 'bg-white text-slate-900 shadow-2xs'
+                      ? 'bg-white text-[#35115A] shadow-2xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  {labelMap[st]}
+                  {st.label}
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* Reports Table */}
-        <div className="overflow-x-auto">
+        {/* Desktop Table View (Hidden on mobile) */}
+        <div className="hidden md:block overflow-x-auto">
           {isLoading ? (
             <div className="p-8 text-center text-xs text-slate-500">
               Memuat data laporan mingguan...
@@ -415,12 +414,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           ) : (
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/75 text-slate-600 font-semibold">
-                  <th className="py-3 px-4">Judul & Divisi</th>
-                  <th className="py-3 px-4">Penulis (Author)</th>
-                  <th className="py-3 px-4">Status & Revisi</th>
-                  <th className="py-3 px-4 text-center">Butir 4 Tabel</th>
-                  <th className="py-3 px-4">Pembaruan Terakhir</th>
+                <tr className="border-b border-slate-200/80 bg-slate-50/75 text-slate-600 font-semibold">
+                  <th className="py-3 px-4">Judul & divisi</th>
+                  <th className="py-3 px-4">Penanggung jawab (Author)</th>
+                  <th className="py-3 px-4">Status & revisi</th>
+                  <th className="py-3 px-4 text-center">Butir 4-tabel</th>
+                  <th className="py-3 px-4">Pembaruan terakhir</th>
                   <th className="py-3 px-4 text-right">Aksi</th>
                 </tr>
               </thead>
@@ -438,21 +437,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       className="hover:bg-slate-50/70 transition-colors cursor-pointer group"
                       onClick={() => onOpenReport(report.id)}
                     >
-                      <td className="py-3 px-4">
+                      <td className="py-3.5 px-4">
                         <div className="font-semibold text-slate-900 group-hover:text-[#6C2AA6] transition-colors">
                           {report.title}
                         </div>
-                        <div className="text-[11px] text-slate-500">
+                        <div className="text-[11px] text-slate-500 mt-0.5">
                           {report.teamName}
                         </div>
                       </td>
 
-                      <td className="py-3 px-4">
+                      <td className="py-3.5 px-4">
                         <div className="font-medium text-slate-800">{report.authorName}</div>
                         <div className="text-[10px] text-slate-400">{report.authorEmail}</div>
                       </td>
 
-                      <td className="py-3 px-4">
+                      <td className="py-3.5 px-4">
                         <div className="flex items-center gap-2">
                           <StatusBadge type="report" value={report.status} size="sm" />
                           <span className="text-[11px] text-slate-500 tabular-nums">
@@ -466,24 +465,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         )}
                       </td>
 
-                      <td className="py-3 px-4 text-center tabular-nums font-mono text-slate-700">
-                        {totalItems} item
+                      <td className="py-3.5 px-4 text-center tabular-nums font-medium text-slate-700">
+                        {totalItems} butir
                       </td>
 
-                      <td className="py-3 px-4 text-slate-500 tabular-nums text-[11px]">
+                      <td className="py-3.5 px-4 text-slate-500 tabular-nums text-[11px]">
                         {formatDateTimeIndonesian(report.updatedAt)}
                       </td>
 
-                      <td className="py-3 px-4 text-right">
+                      <td className="py-3.5 px-4 text-right">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             onOpenReport(report.id);
                           }}
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-[#6C2AA6] hover:text-[#35115A] bg-[#F4EFFA] hover:bg-[#ebdcf9] px-2.5 py-1 rounded-md transition-colors cursor-pointer"
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-[#6C2AA6] hover:text-[#35115A] bg-[#F4EFFA] hover:bg-[#ebdcf9] min-h-[36px] px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
                         >
                           <span>Buka</span>
-                          <ChevronRight className="w-3 h-3" />
+                          <ChevronRight className="w-3.5 h-3.5" />
                         </button>
                       </td>
                     </tr>
@@ -491,6 +490,75 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 })}
               </tbody>
             </table>
+          )}
+        </div>
+
+        {/* Mobile Record Cards View (Displayed on small screens <768px) */}
+        <div className="block md:hidden divide-y divide-slate-100">
+          {isLoading ? (
+            <div className="p-6 text-center text-xs text-slate-500">
+              Memuat data laporan...
+            </div>
+          ) : filteredReports.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-xs">
+              <FileText className="w-8 h-8 mx-auto mb-2 opacity-30 text-slate-600" />
+              <p className="font-semibold text-slate-700">Tidak ada laporan yang cocok</p>
+            </div>
+          ) : (
+            filteredReports.map((report) => {
+              const totalItems =
+                report.sections.achievements.items.length +
+                report.sections.issues.items.length +
+                report.sections.objectives.items.length +
+                report.sections.support.items.length;
+
+              return (
+                <div
+                  key={report.id}
+                  onClick={() => onOpenReport(report.id)}
+                  className="p-4 hover:bg-slate-50/80 transition-colors space-y-3 cursor-pointer"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <span className="text-[11px] font-semibold text-[#6C2AA6] bg-[#F4EFFA] px-2 py-0.5 rounded">
+                        {report.teamName}
+                      </span>
+                      <h3 className="text-sm font-bold text-slate-900 mt-1">
+                        {report.title}
+                      </h3>
+                    </div>
+                    <StatusBadge type="report" value={report.status} size="sm" />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-600 pt-1 border-t border-slate-100">
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">Penulis:</span>
+                      <span className="font-semibold text-slate-800">{report.authorName}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">Rincian 4-Tabel:</span>
+                      <span className="font-semibold text-slate-800">{totalItems} item • Rev #{report.revision}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2">
+                    <span className="text-[10px] text-slate-400">
+                      {formatDateTimeIndonesian(report.updatedAt)}
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenReport(report.id);
+                      }}
+                      className="w-full min-h-[44px] py-2 px-3 bg-[#35115A] hover:bg-[#6C2AA6] text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-2xs mt-2"
+                    >
+                      <span>Buka Laporan</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })
           )}
         </div>
       </div>
@@ -502,29 +570,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           aria-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs"
         >
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full border border-slate-200 overflow-hidden text-xs max-h-[85vh] flex flex-col">
+          <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full border border-slate-200 overflow-hidden text-xs max-h-[85vh] flex flex-col">
             <div className="p-4 bg-[#35115A] text-white flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
                 {drilldownType === 'CRITICAL_ISSUES' ? (
-                  <Flame className="w-4 h-4 text-red-400" />
+                  <Flame className="w-4 h-4 text-rose-300" />
                 ) : (
                   <HelpCircle className="w-4 h-4 text-purple-300" />
                 )}
                 <h3 className="text-sm font-bold">
                   {drilldownType === 'CRITICAL_ISSUES'
-                    ? `Daftar Kendala Kritis & Tinggi (${criticalAndHighIssues.length})`
-                    : `Permohonan Dukungan Tertunda (${pendingSupportRequests.length})`}
+                    ? `Daftar kendala kritis & tinggi (${criticalAndHighIssues.length})`
+                    : `Permohonan dukungan tertunda (${pendingSupportRequests.length})`}
                 </h3>
               </div>
               <button
                 onClick={() => setDrilldownType('NONE')}
-                className="text-white/70 hover:text-white p-1 rounded cursor-pointer"
+                className="text-white/70 hover:text-white p-2 rounded cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
               >
                 ✕
               </button>
             </div>
 
-            <div className="p-5 overflow-y-auto space-y-3 flex-1">
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-3 flex-1">
               {drilldownType === 'CRITICAL_ISSUES' ? (
                 criticalAndHighIssues.length === 0 ? (
                   <div className="py-8 text-center text-slate-500">
@@ -534,34 +602,34 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   criticalAndHighIssues.map(({ report, issue }, idx) => (
                     <div
                       key={idx}
-                      className="p-3.5 rounded-lg border border-slate-200 bg-white hover:border-slate-300 transition-colors space-y-2"
+                      className="p-3.5 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition-colors space-y-2"
                     >
                       <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <StatusBadge type="severity" value={issue.severity} size="sm" />
                           <StatusBadge type="issue-state" value={issue.state} size="sm" />
-                          <span className="font-bold text-slate-900 text-xs">{issue.title}</span>
+                          <span className="font-bold text-slate-900 text-xs sm:text-sm">{issue.title}</span>
                         </div>
                         <button
                           onClick={() => {
                             setDrilldownType('NONE');
                             onOpenReport(report.id);
                           }}
-                          className="text-[11px] font-semibold text-[#6C2AA6] hover:underline"
+                          className="text-[11px] font-semibold text-[#6C2AA6] hover:underline cursor-pointer py-1 min-h-[44px] flex items-center"
                         >
-                          Lihat Laporan ({report.teamName}) →
+                          Lihat laporan ({report.teamName}) →
                         </button>
                       </div>
 
                       <div className="text-[11px] text-slate-600 space-y-1">
                         <div>
-                          <strong>Dampak Bisnis:</strong> {issue.businessImpact || '-'}
+                          <strong>Dampak bisnis:</strong> {issue.businessImpact || '-'}
                         </div>
                         <div>
                           <strong>Mitigasi:</strong> {issue.mitigation || '-'}
                         </div>
                         <div className="flex items-center gap-4 text-slate-500 pt-1">
-                          <span><strong>PIC:</strong> {issue.owner}</span>
+                          <span><strong>Penanggung jawab:</strong> {issue.owner}</span>
                           <span><strong>Target:</strong> {issue.targetResolutionDate}</span>
                         </div>
                       </div>
@@ -577,30 +645,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   pendingSupportRequests.map(({ report, support }, idx) => (
                     <div
                       key={idx}
-                      className="p-3.5 rounded-lg border border-slate-200 bg-white hover:border-slate-300 transition-colors space-y-2"
+                      className="p-3.5 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition-colors space-y-2"
                     >
                       <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="px-2 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200 font-semibold text-[10px]">
                             {support.type}
                           </span>
-                          <span className="font-bold text-slate-900 text-xs">{support.request}</span>
+                          <span className="font-bold text-slate-900 text-xs sm:text-sm">{support.request}</span>
                         </div>
                         <button
                           onClick={() => {
                             setDrilldownType('NONE');
                             onOpenReport(report.id);
                           }}
-                          className="text-[11px] font-semibold text-[#6C2AA6] hover:underline"
+                          className="text-[11px] font-semibold text-[#6C2AA6] hover:underline cursor-pointer py-1 min-h-[44px] flex items-center"
                         >
-                          Lihat Laporan ({report.teamName}) →
+                          Lihat laporan ({report.teamName}) →
                         </button>
                       </div>
 
                       <div className="text-[11px] text-slate-600 space-y-1">
                         {support.amount && (
                           <div className="text-[#35115A] font-bold">
-                            Estimasi Anggaran: Rp {support.amount.toLocaleString('id-ID')}
+                            Estimasi anggaran: Rp {support.amount.toLocaleString('id-ID')}
                           </div>
                         )}
                         <div>
@@ -608,7 +676,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         </div>
                         <div className="flex items-center gap-4 text-slate-500 pt-1">
                           <span><strong>Dimintakan ke:</strong> {support.requestedFrom}</span>
-                          <span><strong>Dibutuhkan Sebelum:</strong> {support.neededBy}</span>
+                          <span><strong>Dibutuhkan sebelum:</strong> {support.neededBy}</span>
                         </div>
                       </div>
                     </div>
@@ -620,7 +688,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="p-3 bg-slate-50 border-t border-slate-200 flex justify-end">
               <button
                 onClick={() => setDrilldownType('NONE')}
-                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-semibold cursor-pointer"
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl text-xs font-semibold cursor-pointer min-h-[44px]"
               >
                 Tutup
               </button>

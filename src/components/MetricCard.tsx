@@ -69,21 +69,21 @@ export const MetricCard: React.FC<MetricCardProps> = ({
         onClick ? 'cursor-pointer active:scale-[0.99]' : ''
       }`}
     >
-      <div className="flex items-center justify-between text-slate-500 mb-3">
-        <span className="text-xs font-bold uppercase tracking-wider text-slate-500 truncate">{label}</span>
+      <div className="flex items-center justify-between text-slate-500 mb-2.5 gap-2">
+        <span className="text-xs font-semibold text-slate-600 leading-snug break-words">{label}</span>
         {Icon && (
-          <div className={`p-2 rounded-xl ${getIconContainerColor()} transition-colors`}>
+          <div className={`p-2 rounded-xl shrink-0 ${getIconContainerColor()} transition-colors`}>
             <Icon className="w-4 h-4" aria-hidden="true" />
           </div>
         )}
       </div>
 
-      <div className={`text-3xl font-black tracking-tight tabular-nums ${getValueColor()}`}>
+      <div className={`text-2xl sm:text-3xl font-bold tracking-tight tabular-nums ${getValueColor()}`}>
         {value}
       </div>
 
       {subtext && (
-        <div className="mt-2 text-xs font-semibold text-slate-500 truncate" title={subtext}>
+        <div className="mt-2 text-xs text-slate-500 leading-relaxed break-words">
           {subtext}
         </div>
       )}

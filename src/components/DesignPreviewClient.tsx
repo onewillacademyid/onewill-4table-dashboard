@@ -74,25 +74,45 @@ export function DesignPreviewClient() {
       </div>
 
       {/* Control Bar: Screen Tabs & Viewport Switcher */}
-      <div className="bg-slate-800 border-b border-slate-700 p-3 px-4 flex flex-wrap items-center justify-between gap-3 text-xs">
-        {/* Screen Tabs */}
-        <div className="flex items-center space-x-1 overflow-x-auto pb-1 sm:pb-0">
+      <div className="bg-slate-800 border-b border-slate-700 p-3 px-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 text-xs">
+        {/* Mobile Dropdown Navigation Selector */}
+        <div className="block md:hidden">
+          <label htmlFor="preview-screen-select" className="sr-only">Pilih Layar Pratinjau</label>
+          <select
+            id="preview-screen-select"
+            value={activeScreen}
+            onChange={(e) => setActiveScreen(e.target.value as PreviewScreen)}
+            className="w-full bg-slate-900 border border-slate-700 text-white text-xs font-semibold px-3 py-2.5 rounded-xl min-h-[44px] cursor-pointer"
+          >
+            <option value="dashboard">📊 Dashboard Utama</option>
+            <option value="four-table">📋 Grid 4-Tabel Bento</option>
+            <option value="reports-list">📂 Daftar Laporan</option>
+            <option value="report-detail">🔍 Rincian Laporan</option>
+            <option value="report-editor">✏-[#] Editor Laporan</option>
+            <option value="reviews-queue">⏳ Antrean Tinjauan</option>
+            <option value="admin-users">👥 Kelola Pengguna</option>
+            <option value="admin-integrations">🔗 Integrasi Drive</option>
+          </select>
+        </div>
+
+        {/* Desktop & Tablet Pill Navigation */}
+        <div className="hidden md:flex items-center space-x-1.5 overflow-x-auto pb-1 md:pb-0">
           {[
             { id: 'dashboard', label: '📊 Dashboard' },
-            { id: 'four-table', label: '📋 4-Table Grid' },
-            { id: 'reports-list', label: '📂 Reports List' },
-            { id: 'report-detail', label: '🔍 Detail View' },
-            { id: 'report-editor', label: '✏️ Editor View' },
-            { id: 'reviews-queue', label: '⏳ Reviews Queue' },
-            { id: 'admin-users', label: '👥 Admin Users' },
+            { id: 'four-table', label: '📋 Grid 4-Tabel' },
+            { id: 'reports-list', label: '📂 Daftar Laporan' },
+            { id: 'report-detail', label: '🔍 Rincian' },
+            { id: 'report-editor', label: '✏️ Editor' },
+            { id: 'reviews-queue', label: '⏳ Antrean Tinjauan' },
+            { id: 'admin-users', label: '👥 Kelola Pengguna' },
             { id: 'admin-integrations', label: '🔗 Integrasi Drive' },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveScreen(tab.id as PreviewScreen)}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer ${
+              className={`px-3 py-2 rounded-xl font-semibold transition-all whitespace-nowrap cursor-pointer min-h-[38px] flex items-center ${
                 activeScreen === tab.id
-                  ? 'bg-[#6C2AA6] text-white shadow-sm'
+                  ? 'bg-[#6C2AA6] text-white shadow-xs'
                   : 'bg-slate-700/60 text-slate-300 hover:bg-slate-700 hover:text-white'
               }`}
             >
@@ -102,44 +122,46 @@ export function DesignPreviewClient() {
         </div>
 
         {/* Viewport Width Controls */}
-        <div className="flex items-center space-x-1 bg-slate-900/80 p-1 rounded-lg border border-slate-700">
-          <span className="text-[10px] text-slate-400 font-bold px-2 uppercase">Lebar Layer:</span>
-          <button
-            onClick={() => setViewportMode('responsive')}
-            title="Responsif Penuh"
-            className={`p-1.5 rounded-md transition-colors cursor-pointer ${
-              viewportMode === 'responsive' ? 'bg-[#6C2AA6] text-white' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => setViewportMode('desktop')}
-            title="Desktop 1440px"
-            className={`p-1.5 rounded-md transition-colors cursor-pointer ${
-              viewportMode === 'desktop' ? 'bg-[#6C2AA6] text-white' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Monitor className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => setViewportMode('tablet')}
-            title="Tablet 768px"
-            className={`p-1.5 rounded-md transition-colors cursor-pointer ${
-              viewportMode === 'tablet' ? 'bg-[#6C2AA6] text-white' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Tablet className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => setViewportMode('mobile')}
-            title="Mobile 390px"
-            className={`p-1.5 rounded-md transition-colors cursor-pointer ${
-              viewportMode === 'mobile' ? 'bg-[#6C2AA6] text-white' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Smartphone className="w-3.5 h-3.5" />
-          </button>
+        <div className="flex items-center justify-between sm:justify-end space-x-1 bg-slate-900/80 p-1.5 rounded-xl border border-slate-700">
+          <span className="text-[11px] text-slate-400 font-semibold px-2">Lebar layar:</span>
+          <div className="flex items-center space-x-1">
+            <button
+              onClick={() => setViewportMode('responsive')}
+              title="Responsif Penuh"
+              className={`p-2 rounded-lg transition-colors cursor-pointer min-h-[38px] min-w-[38px] flex items-center justify-center ${
+                viewportMode === 'responsive' ? 'bg-[#6C2AA6] text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setViewportMode('desktop')}
+              title="Desktop 1440px"
+              className={`p-2 rounded-lg transition-colors cursor-pointer min-h-[38px] min-w-[38px] flex items-center justify-center ${
+                viewportMode === 'desktop' ? 'bg-[#6C2AA6] text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Monitor className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setViewportMode('tablet')}
+              title="Tablet 768px"
+              className={`p-2 rounded-lg transition-colors cursor-pointer min-h-[38px] min-w-[38px] flex items-center justify-center ${
+                viewportMode === 'tablet' ? 'bg-[#6C2AA6] text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Tablet className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setViewportMode('mobile')}
+              title="Mobile 390px"
+              className={`p-2 rounded-lg transition-colors cursor-pointer min-h-[38px] min-w-[38px] flex items-center justify-center ${
+                viewportMode === 'mobile' ? 'bg-[#6C2AA6] text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Smartphone className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 

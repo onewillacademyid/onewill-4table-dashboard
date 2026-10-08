@@ -140,16 +140,16 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, onNavigate, onNewRep
         </div>
 
         {/* Mobile Navigation Row */}
-        <div className="md:hidden flex items-center gap-1 py-2 overflow-x-auto border-t border-slate-100 text-xs">
+        <div className="md:hidden flex items-center gap-1.5 py-2 overflow-x-auto border-t border-slate-100 text-xs">
           {navItems.map((item) => {
             const isActive = currentTab === item.id;
             return (
               <button
                 key={item.id}
                 onClick={() => onNavigate(item.id)}
-                className={`px-3 py-1.5 rounded-md whitespace-nowrap cursor-pointer transition-colors ${
+                className={`px-3 py-2 min-h-[44px] rounded-xl whitespace-nowrap cursor-pointer transition-colors flex items-center font-semibold ${
                   isActive
-                    ? 'bg-[#F4EFFA] text-[#35115A] font-semibold'
+                    ? 'bg-[#F4EFFA] text-[#35115A]'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
