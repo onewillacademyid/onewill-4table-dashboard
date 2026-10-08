@@ -44,4 +44,4 @@
 ## Development governance
 - Do not report M3 as completed until runtime tests and review evidence exist.
 - Application `main` must not be directly edited by autonomous agents. Use reviewed pull requests.
-- Documentation branch creation was attempted on 2026-10-08 but GitHub App returned **403 Resource not accessible by integration**. Documentation is supplied as a downloadable, uncommitted package pending write permission or user push.
+- Documentation files have been committed to the docs/project-governance-20261008 branch. Pending pull request review and merge into main. Application source code remains unchanged.
