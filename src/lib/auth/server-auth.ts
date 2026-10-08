@@ -1,12 +1,12 @@
 /**
  * Onewill Academy | Server Auth & Session Verification Utilities
  * Strictly server-only. Handles Firebase ID token exchange, HttpOnly session cookie verification,
- * CSRF validation, and trusted Firestore User Registry authorization.
+ * CSRF validation, and trusted Firestore User Registry authorization via atomic transactions.
  */
 
 import { getAdminAuth, getAdminDb } from '@/lib/firebase/admin';
 import { FirestoreUserDocument, FirestoreInvitationDocument } from '@/types/firestore';
-import { User } from '@/types';
+import { User, UserRole } from '@/types';
 import { mapFirestoreUserToDomainUser } from '@/lib/firebase/auth-foundation';
 
 // Strict runtime safeguard against client-side execution/bundling
@@ -22,41 +22,62 @@ export interface ServerAuthResult {
 }
 
 /**
- * Validates request origin/referer header against host to mitigate CSRF attacks.
+ * Validates request origin/referer header against explicitly configured trusted application origins.
+ * Supports reverse proxies (x-forwarded-host), APP_URL, and local development.
  */
 export function validateCsrfOrigin(request: Request): boolean {
   const origin = request.headers.get('origin');
   const referer = request.headers.get('referer');
-  const host = request.headers.get('host');
+  const host = request.headers.get('x-forwarded-host') || request.headers.get('host');
+  const appUrl = process.env.APP_URL;
 
-  if (!host) return false;
+  const allowedHosts = new Set<string>();
 
-  if (origin) {
+  if (host) {
+    allowedHosts.add(host.toLowerCase());
+  }
+
+  if (appUrl) {
     try {
-      const originHost = new URL(origin).host;
-      return originHost === host;
+      allowedHosts.add(new URL(appUrl).host.toLowerCase());
     } catch {
-      return false;
+      // ignore invalid appUrl format
     }
   }
 
-  if (referer) {
+  // Trusted development origins
+  allowedHosts.add('localhost:3000');
+  allowedHosts.add('127.0.0.1:3000');
+  allowedHosts.add('0.0.0.0:3000');
+
+  const checkUrlHost = (urlStr: string | null): boolean => {
+    if (!urlStr) return false;
     try {
-      const refererHost = new URL(referer).host;
-      return refererHost === host;
+      const parsedHost = new URL(urlStr).host.toLowerCase();
+      return allowedHosts.has(parsedHost);
     } catch {
       return false;
     }
+  };
+
+  if (origin) {
+    return checkUrlHost(origin);
+  }
+
+  if (referer) {
+    return checkUrlHost(referer);
   }
 
   return false;
 }
 
 /**
- * Verifies or provisions user record in Firestore users/{uid}.
- * If user does not exist in users/{uid}, checks invitations/{id} for a pending invitation matching the email.
- * Binds accepted invitation to UID and creates active user document.
- * PROHIBITED: Automatic Super Admin assignment.
+ * Atomically verifies or provisions user record in Firestore users/{uid} using db.runTransaction().
+ * - Checks users/{uid} for active account status.
+ * - If new user, checks invitations/{id} for single-use PENDING invitation matching normalized email.
+ * - Prevents race conditions and duplicate invitation acceptance via transactional locks.
+ * - Role & team are strictly derived from invitation record (NEVER client input).
+ * - PROHIBITED: Automatic Super Admin assignment.
  */
 export async function syncOrVerifyUserRegistry(
   uid: string,
@@ -65,32 +86,8 @@ export async function syncOrVerifyUserRegistry(
   photoURL?: string
 ): Promise<{ userDoc?: FirestoreUserDocument; error?: string; code?: 'UNINVITED' | 'DISABLED' }> {
   const db = getAdminDb();
-  const userRef = db.collection('users').doc(uid);
-  const userSnap = await userRef.get();
-
-  const now = new Date().toISOString();
-
-  if (userSnap.exists) {
-    const userData = userSnap.data() as FirestoreUserDocument;
-
-    if (!userData.active) {
-      return {
-        error: 'Akun Anda tidak aktif atau telah dinonaktifkan oleh administrator.',
-        code: 'DISABLED',
-      };
-    }
-
-    await userRef.update({
-      lastLoginAt: now,
-      displayName: displayName || userData.displayName,
-      ...(photoURL ? { photoURL } : {}),
-    });
-
-    return { userDoc: { ...userData, lastLoginAt: now } };
-  }
-
-  // Search for pending invitation matching email
   const normalizedEmail = (email || '').toLowerCase().trim();
+
   if (!normalizedEmail) {
     return {
       error: 'Email pengguna tidak valid.',
@@ -98,56 +95,97 @@ export async function syncOrVerifyUserRegistry(
     };
   }
 
-  const invitationsRef = db.collection('invitations');
-  const invitationQuery = await invitationsRef
-    .where('normalizedEmail', '==', normalizedEmail)
-    .where('status', '==', 'PENDING')
-    .limit(1)
-    .get();
+  return await db.runTransaction(async (transaction) => {
+    const userRef = db.collection('users').doc(uid);
+    const userSnap = await transaction.get(userRef);
+    const now = new Date().toISOString();
 
-  if (invitationQuery.empty) {
-    return {
-      error: 'Email Anda belum terdaftar dalam undangan akses Onewill Academy.',
-      code: 'UNINVITED',
+    if (userSnap.exists) {
+      const userData = userSnap.data() as FirestoreUserDocument;
+
+      if (!userData.active) {
+        return {
+          error: 'Akun Anda tidak aktif atau telah dinonaktifkan oleh administrator.',
+          code: 'DISABLED',
+        };
+      }
+
+      transaction.update(userRef, {
+        lastLoginAt: now,
+        displayName: displayName || userData.displayName,
+        ...(photoURL ? { photoURL } : {}),
+      });
+
+      return { userDoc: { ...userData, lastLoginAt: now } };
+    }
+
+    // Search for single-use pending invitation matching email
+    const invitationsRef = db.collection('invitations');
+    const invitationQuery = await invitationsRef
+      .where('normalizedEmail', '==', normalizedEmail)
+      .where('status', '==', 'PENDING')
+      .limit(1)
+      .get();
+
+    if (invitationQuery.empty) {
+      return {
+        error: 'Email Anda belum terdaftar dalam undangan akses Onewill Academy.',
+        code: 'UNINVITED',
+      };
+    }
+
+    const invitationDoc = invitationQuery.docs[0];
+    const invitationSnap = await transaction.get(invitationDoc.ref);
+
+    if (!invitationSnap.exists) {
+      return {
+        error: 'Undangan akses tidak ditemukan.',
+        code: 'UNINVITED',
+      };
+    }
+
+    const invitation = invitationSnap.data() as FirestoreInvitationDocument;
+
+    if (invitation.status !== 'PENDING') {
+      return {
+        error: 'Undangan akses ini telah digunakan atau tidak lagi berlaku.',
+        code: 'UNINVITED',
+      };
+    }
+
+    if (invitation.expiresAt && new Date(invitation.expiresAt) < new Date()) {
+      transaction.update(invitationDoc.ref, { status: 'EXPIRED' });
+      return {
+        error: 'Undangan akses Anda telah kadaluarsa. Silakan minta undangan baru dari Admin.',
+        code: 'UNINVITED',
+      };
+    }
+
+    // Role & team strictly derived from verified invitation (Never from browser input)
+    const assignedRole: UserRole = invitation.role;
+
+    const newUserDoc: FirestoreUserDocument = {
+      uid,
+      email: normalizedEmail,
+      displayName: displayName || normalizedEmail.split('@')[0],
+      photoURL: photoURL || '',
+      active: true,
+      role: assignedRole,
+      teamId: invitation.teamId || 'team-1',
+      invitedEmail: normalizedEmail,
+      createdAt: now,
+      lastLoginAt: now,
     };
-  }
 
-  const invitationDoc = invitationQuery.docs[0];
-  const invitation = invitationDoc.data() as FirestoreInvitationDocument;
+    transaction.set(userRef, newUserDoc);
+    transaction.update(invitationDoc.ref, {
+      status: 'ACCEPTED',
+      acceptedAt: now,
+      acceptedByUid: uid,
+    });
 
-  if (invitation.expiresAt && new Date(invitation.expiresAt) < new Date()) {
-    await invitationDoc.ref.update({ status: 'EXPIRED' });
-    return {
-      error: 'Undangan akses Anda telah kadaluarsa. Silakan minta undangan baru dari Admin.',
-      code: 'UNINVITED',
-    };
-  }
-
-  // Create user document bound to invitation role and team
-  const newUserDoc: FirestoreUserDocument = {
-    uid,
-    email: normalizedEmail,
-    displayName: displayName || normalizedEmail.split('@')[0],
-    photoURL: photoURL || '',
-    active: true,
-    role: invitation.role,
-    teamId: invitation.teamId || 'team-1',
-    invitedEmail: normalizedEmail,
-    createdAt: now,
-    lastLoginAt: now,
-  };
-
-  const batch = db.batch();
-  batch.set(userRef, newUserDoc);
-  batch.update(invitationDoc.ref, {
-    status: 'ACCEPTED',
-    acceptedAt: now,
-    acceptedByUid: uid,
+    return { userDoc: newUserDoc };
   });
-
-  await batch.commit();
-
-  return { userDoc: newUserDoc };
 }
 
 /**
@@ -160,6 +198,7 @@ export async function verifyServerSession(sessionCookie: string): Promise<Server
 
   try {
     const auth = getAdminAuth();
+    // Enforce checkRevoked = true to reject revoked sessions
     const decodedClaims = await auth.verifySessionCookie(sessionCookie, true);
 
     const db = getAdminDb();

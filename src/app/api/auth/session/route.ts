@@ -5,10 +5,10 @@ import { syncOrVerifyUserRegistry, validateCsrfOrigin } from '@/lib/auth/server-
 import { mapFirestoreUserToDomainUser } from '@/lib/firebase/auth-foundation';
 
 export async function POST(request: Request) {
-  // CSRF Origin verification
+  // CSRF Origin verification against trusted hosts
   if (!validateCsrfOrigin(request)) {
     return NextResponse.json(
-      { error: 'Validasi CSRF gagal: Permintaan dari sumber tidak valid.' },
+      { error: 'Validasi CSRF gagal: Permintaan dari sumber origin tidak dikenal.' },
       { status: 403 }
     );
   }
@@ -27,7 +27,31 @@ export async function POST(request: Request) {
     // Verify Firebase ID token
     const auth = getAdminAuth();
     const decodedToken = await auth.verifyIdToken(idToken);
-    const { uid, email, name, picture } = decodedToken;
+    const { uid, email, name, picture, email_verified, auth_time } = decodedToken;
+
+    // P0 Requirement 3: Enforce email_verified claim
+    if (!email_verified) {
+      return NextResponse.json(
+        { error: 'Akses ditolak: Alamat email belum terverifikasi oleh penyedia otentikasi.' },
+        { status: 403 }
+      );
+    }
+
+    // P0 Requirement 3: Validate authentication freshness (auth_time)
+    const currentTime = Math.floor(Date.now() / 1000);
+    const maxAuthAgeSeconds = 5 * 60; // 5 minutes (300s)
+
+    if (
+      !auth_time ||
+      typeof auth_time !== 'number' ||
+      auth_time > currentTime + 60 || // Future timestamp buffer
+      currentTime - auth_time > maxAuthAgeSeconds
+    ) {
+      return NextResponse.json(
+        { error: 'Akses ditolak: Otentikasi telah kadaluarsa (auth_time > 5 menit). Silakan masuk kembali.' },
+        { status: 401 }
+      );
+    }
 
     if (!email) {
       return NextResponse.json(
@@ -36,7 +60,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check user registry & invitations in Firestore
+    // Check user registry & single-use invitations in Firestore via atomic transaction
     const registryResult = await syncOrVerifyUserRegistry(
       uid,
       email,
@@ -73,7 +97,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error('Session creation error:', error);
     return NextResponse.json(
-      { error: 'Gagal mengotentikasi sesi backend: ' + (error.message || 'Error tidak diketahui') },
+      { error: 'Gagal mengotentikasi sesi backend: Token tidak valid atau kadaluarsa.' },
       { status: 401 }
     );
   }

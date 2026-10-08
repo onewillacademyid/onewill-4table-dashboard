@@ -9,6 +9,7 @@ import {
   sendSignInLinkToEmail,
   isSignInWithEmailLink,
   signInWithEmailLink,
+  signOut,
   ActionCodeSettings,
   UserCredential,
 } from 'firebase/auth';
@@ -160,10 +161,13 @@ async function exchangeIdTokenForSession(idToken: string): Promise<ClientAuthRes
 }
 
 /**
- * Revokes backend session cookie and logs out user.
+ * Revokes backend session cookie and clears Firebase Client Authentication state.
  */
 export async function logoutClient(): Promise<{ success: boolean; error?: string }> {
   try {
+    const auth = getClientAuth();
+    await signOut(auth);
+
     const res = await fetch('/api/auth/logout', {
       method: 'POST',
     });
@@ -172,8 +176,8 @@ export async function logoutClient(): Promise<{ success: boolean; error?: string
       return { success: false, error: data.error };
     }
     return { success: true };
-  } catch {
-    return { success: false, error: 'Kesalahan jaringan saat keluar.' };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Kesalahan jaringan saat keluar.' };
   }
 }
 
