@@ -1,0 +1,6 @@
+{
+  "name": "Onewill Academy | The 4 Table Weekly Progress Dashboard",
+  "description": "Dasbor pelaporan progres mingguan 4 tabel untuk Onewill Academy: Capaian, Kendala, Sasaran, dan Dukungan dengan alur persetujuan dan ringkasan eksekutif.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

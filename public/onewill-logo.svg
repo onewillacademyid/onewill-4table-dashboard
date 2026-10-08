@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 540" fill="none" role="img" aria-label="Onewill Academy - Your Strategic Learning &amp; Growth Partner.">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@700;800&amp;display=swap');
+      .brand-onewill {
+        font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+        font-weight: 800;
+        fill: #43105B;
+      }
+      .brand-tagline {
+        font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+        font-weight: 700;
+        fill: #43105B;
+      }
+    </style>
+  </defs>
+
+  <!-- ==================== ICON EMBLEM ==================== -->
+  <g transform="translate(60, 50)">
+    <!-- 1. Outer Ring Arc and Left Outer Leg (Deep Purple) -->
+    <path d="
+      M 16 195 
+      L 44 195 
+      L 72 134 
+      C 64 121 60 105 60 88 
+      C 60 61 82 39 109 39 
+      C 136 39 158 61 158 88 
+      C 158 105 149 121 137 134 
+      L 165 195 
+      L 194 195 
+      C 183 148 188 100 168 64 
+      C 155 42 134 22 109 22 
+      C 72 22 43 51 37 88 
+      C 35 104 39 120 46 134 
+      Z
+    " fill="#43105B" />
+
+    <!-- 2. Right Solid Leg (Deep Purple) -->
+    <path d="
+      M 109 72 
+      L 155 195 
+      L 194 195 
+      L 138 72 
+      Z
+    " fill="#43105B" />
+
+    <!-- 3. Chevron Upper Purple Stroke -->
+    <path d="
+      M 109 72 
+      L 124 116 
+      L 105 116 
+      L 96 92 
+      L 82 124 
+      L 67 124 
+      Z
+    " fill="#43105B" />
+
+    <!-- 4. Lower Left Chevron Accent (Golden Amber Parallelogram) -->
+    <polygon points="51,195 78,195 106,134 79,134" fill="#EBA107" />
+  </g>
+
+  <!-- ==================== WORDMARK ==================== -->
+  <g transform="translate(285, 60)">
+    <text x="0" y="94" class="brand-onewill" font-size="86" letter-spacing="-0.035em">Onewill</text>
+    <text x="0" y="186" class="brand-onewill" font-size="86" letter-spacing="-0.035em">Academy</text>
+  </g>
+
+  <!-- ==================== TAGLINE ==================== -->
+  <text x="60" y="345" class="brand-tagline" font-size="31.5" letter-spacing="-0.015em">Your Strategic Learning &amp; Growth Partner.</text>
+</svg>
