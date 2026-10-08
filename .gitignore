@@ -1,3 +1,4 @@
+# Dependencies & Builds
 node_modules/
 build/
 dist/
@@ -6,5 +7,14 @@ tsconfig.tsbuildinfo
 coverage/
 .DS_Store
 *.log
+
+# Secrets & Credential Files
 .env*
 !.env.example
+*.pem
+*.key
+*.p12
+service-account*.json
+firebase-service-account*.json
+*-credentials.json
+*.local
