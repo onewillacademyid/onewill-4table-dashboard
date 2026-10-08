@@ -12,7 +12,8 @@
     "test:rbac": "tsx scripts/test-rbac-policy.ts",
     "test:admin-api": "tsx scripts/test-admin-api-logic.ts",
     "test:admin-api-http": "tsx scripts/test-admin-api-http.ts",
-    "test": "tsx scripts/test-rbac-policy.ts && tsx scripts/test-admin-api-logic.ts && tsx scripts/test-admin-api-http.ts",
+    "test:admin-users-view": "tsx scripts/test-admin-users-view-logic.ts",
+    "test": "tsx scripts/test-rbac-policy.ts && tsx scripts/test-admin-api-logic.ts && tsx scripts/test-admin-api-http.ts && tsx scripts/test-admin-users-view-logic.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
