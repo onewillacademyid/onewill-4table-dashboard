@@ -374,7 +374,7 @@ runTest('Rejects report creation when author account is inactive (DISABLED/UNAUT
   assert.strictEqual(res.code, 'UNAUTHORIZED_ROLE');
 });
 
-runTest('Derives authorId, authorEmail, teamId strictly from author parameter on successful draft creation', async () => {
+runTest('FirestoreReportRepository rejects write with MUTATION_DISABLED when feature gate is false', async () => {
   const repo = new FirestoreReportRepository();
   const activeContributor: User = {
     id: 'user-adhi-real-uid',
@@ -405,14 +405,8 @@ runTest('Derives authorId, authorEmail, teamId strictly from author parameter on
     author: activeContributor,
   });
 
-  assert.strictEqual(res.success, true);
-  assert.ok(res.data);
-  assert.strictEqual(res.data.id, 'rep_2026_w41_team-operasional');
-  assert.strictEqual(res.data.authorId, 'user-adhi-real-uid');
-  assert.strictEqual(res.data.authorEmail, 'adhimonow@gmail.com');
-  assert.strictEqual(res.data.teamId, 'team-operasional');
-  assert.strictEqual(res.data.status, 'DRAFT');
-  assert.strictEqual(res.data.revision, 1);
+  assert.strictEqual(res.success, false);
+  assert.strictEqual(res.code, 'MUTATION_DISABLED');
 });
 
 console.log('');

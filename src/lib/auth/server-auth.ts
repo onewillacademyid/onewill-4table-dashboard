@@ -21,6 +21,21 @@ export interface ServerAuthResult {
   code?: 'UNAUTHENTICATED' | 'UNINVITED' | 'DISABLED' | 'EXPIRED' | 'INVALID_TOKEN';
 }
 
+let customSessionVerifier: ((sessionCookie: string) => Promise<ServerAuthResult>) | null = null;
+
+/**
+ * Custom session verifier registration strictly for automated test suites.
+ * Allows test suites to simulate verified sessions without Firebase Admin SDK connections.
+ */
+export function setCustomSessionVerifierForTesting(
+  verifier: ((sessionCookie: string) => Promise<ServerAuthResult>) | null
+): void {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('CRITICAL SECURITY ERROR: Session verifier test overrides are strictly prohibited in production!');
+  }
+  customSessionVerifier = verifier;
+}
+
 /**
  * Validates request origin/referer header against EXPLICITLY CONFIGURED trusted application origins.
  * NEVER adds arbitrary request Host or X-Forwarded-Host headers to the allowlist.
@@ -197,6 +212,10 @@ export async function syncOrVerifyUserRegistry(
  * Verifies a session cookie using Firebase Admin SDK and returns active user domain profile.
  */
 export async function verifyServerSession(sessionCookie: string): Promise<ServerAuthResult> {
+  if (process.env.NODE_ENV !== 'production' && customSessionVerifier) {
+    return await customSessionVerifier(sessionCookie);
+  }
+
   if (!sessionCookie) {
     return { authenticated: false, code: 'UNAUTHENTICATED', error: 'Sesi tidak ditemukan.' };
   }

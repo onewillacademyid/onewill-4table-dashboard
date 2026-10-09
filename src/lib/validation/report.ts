@@ -5,15 +5,6 @@
  */
 
 import { z } from 'zod';
-import {
-  IssueSeverity,
-  IssueState,
-  ObjectivePriority,
-  SupportType,
-  SupportStatus,
-  ReportStatus,
-  ArchiveStatus,
-} from '@/types';
 
 // ==========================================
 // Section 1: Capaian Pekan Lalu (Achievements)
@@ -143,6 +134,7 @@ export const CreateReportInputSchema = z
     title: z.string().max(300, 'Judul laporan maksimal 300 karakter.').optional(),
     sections: WeeklyReportSectionsSchema,
   })
+  .strict()
   .refine(
     (data) => {
       return validateReportWeekBounds(data.year, data.weekNumber, data.weekStartDate, data.weekEndDate);
@@ -154,6 +146,20 @@ export const CreateReportInputSchema = z
   );
 
 export type CreateReportInput = z.infer<typeof CreateReportInputSchema>;
+
+// ==========================================
+// GET /api/reports Query Validation Schema
+// ==========================================
+export const ListReportsQuerySchema = z.object({
+  teamId: z.string().optional(),
+  status: z.enum(['DRAFT', 'SUBMITTED', 'NEEDS_REVISION', 'APPROVED', 'ARCHIVED', 'ALL']).optional(),
+  weekNumber: z.coerce.number().int().min(1).max(53).optional(),
+  year: z.coerce.number().int().min(2026).max(2030).optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  cursor: z.string().optional(),
+});
+
+export type ListReportsQuery = z.infer<typeof ListReportsQuerySchema>;
 
 // ==========================================
 // ISO Week Date & Boundary Validation Helpers

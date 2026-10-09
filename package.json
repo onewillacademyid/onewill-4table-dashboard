@@ -15,7 +15,8 @@
     "test:admin-users-view": "tsx scripts/test-admin-users-view-logic.ts",
     "test:admin-mutations-controlled": "tsx scripts/test-admin-mutations-controlled.ts",
     "test:report-schemas": "tsx scripts/test-report-schemas.ts",
-    "test": "tsx scripts/test-rbac-policy.ts && tsx scripts/test-admin-api-logic.ts && tsx scripts/test-admin-api-http.ts && tsx scripts/test-admin-users-view-logic.ts && tsx scripts/test-admin-mutations-controlled.ts && tsx scripts/test-report-schemas.ts",
+    "test:reports-api-http": "tsx scripts/test-reports-api-http.ts",
+    "test": "tsx scripts/test-rbac-policy.ts && tsx scripts/test-admin-api-logic.ts && tsx scripts/test-admin-api-http.ts && tsx scripts/test-admin-users-view-logic.ts && tsx scripts/test-admin-mutations-controlled.ts && tsx scripts/test-report-schemas.ts && tsx scripts/test-reports-api-http.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"

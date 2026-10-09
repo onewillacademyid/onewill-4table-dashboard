@@ -3,7 +3,7 @@
  * PRD v1.1 Section 8 & Section 10 Compliant.
  * Implements IReportRepository interface with fine-grained RBAC policies and Zod schema validation.
  *
- * NOTE: Phase B Foundation module. Does NOT execute live Firestore mutations.
+ * Enforces Feature Gate isReportWriteEnabled() to prevent real Firestore writes during Phase C1.
  */
 
 import { User, WeeklyReport } from '@/types';
@@ -16,6 +16,7 @@ import {
 } from './report-repository-interface';
 import { CreateReportInputSchema, deriveReportDocId } from '@/lib/validation/report';
 import { canCreateReport, canReadReport } from '@/lib/auth/rbac-policy';
+import { isReportWriteEnabled } from '@/lib/config/feature-flags';
 
 // Strict runtime safeguard against client-side execution/bundling
 if (typeof window !== 'undefined') {
@@ -24,7 +25,7 @@ if (typeof window !== 'undefined') {
 
 export class FirestoreReportRepository implements IReportRepository {
   /**
-   * Creates a new report draft in memory/validation layer.
+   * Creates a new report draft.
    * Derives authorId, authorName, authorEmail, teamId, and teamName strictly from verified user session.
    * Enforces deterministic document ID rep_{year}_w{weekNumber}_{teamId}.
    */
@@ -61,9 +62,16 @@ export class FirestoreReportRepository implements IReportRepository {
       };
     }
 
-    const validData = validation.data;
+    // Security Guard 4: Feature Gate Check (REPORTS_FIRESTORE_WRITES_ENABLED)
+    if (!isReportWriteEnabled()) {
+      return {
+        success: false,
+        code: 'MUTATION_DISABLED',
+        error: 'Feature Gate: Firestore report writes are currently disabled on the server.',
+      };
+    }
 
-    // Security Guard 4: Derivation of deterministic document ID based on team and period
+    const validData = validation.data;
     const docId = deriveReportDocId(author.teamId, validData.year, validData.weekNumber);
     const now = new Date().toISOString();
 
@@ -117,7 +125,6 @@ export class FirestoreReportRepository implements IReportRepository {
       };
     }
 
-    // Determine target team scope based on role
     let effectiveTeamId = filters?.teamId;
 
     if (user.role === 'CONTRIBUTOR' || user.role === 'TEAM_LEAD') {
@@ -125,7 +132,7 @@ export class FirestoreReportRepository implements IReportRepository {
       effectiveTeamId = user.teamId;
     }
 
-    // In Phase B foundation, return empty structured response
+    // In Phase C1 foundation, returns empty reports list
     return {
       success: true,
       data: {
@@ -158,9 +165,9 @@ export class FirestoreReportRepository implements IReportRepository {
     }
 
     return {
-        success: false,
-        code: 'REPORT_NOT_FOUND',
-        error: `Laporan dengan ID ${reportId} tidak ditemukan.`,
+      success: false,
+      code: 'REPORT_NOT_FOUND',
+      error: `Laporan dengan ID ${reportId} tidak ditemukan.`,
     };
   }
 }
