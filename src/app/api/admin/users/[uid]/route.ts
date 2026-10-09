@@ -11,7 +11,7 @@ import { getAdminDb } from '@/lib/firebase/admin';
 import { verifyApiServerUser } from '@/lib/auth/rbac-server';
 import { validateCsrfOrigin } from '@/lib/auth/server-auth';
 import { UpdateUserSchema } from '@/lib/auth/rbac-schemas';
-import { canManageUserAccount } from '@/lib/auth/rbac-policy';
+import { canManageUserAccount, isAdminMutationEnabled } from '@/lib/auth/rbac-policy';
 import { FirestoreUserDocument } from '@/types/firestore';
 
 export async function PATCH(
@@ -33,6 +33,17 @@ export async function PATCH(
   const { user: caller, errorResponse } = await verifyApiServerUser(['ADMIN', 'SUPER_ADMIN']);
   if (errorResponse) {
     return errorResponse;
+  }
+
+  // 1.5 Server Feature Gate Check (ADMIN_MUTATIONS_ENABLED)
+  if (!isAdminMutationEnabled()) {
+    return NextResponse.json(
+      {
+        error: 'Fitur mutasi registri pengguna (pembaruan akun) saat ini tidak diaktifkan pada server.',
+        code: 'MUTATIONS_DISABLED',
+      },
+      { status: 403 }
+    );
   }
 
   // 2. CSRF / Origin Validation

@@ -10,7 +10,7 @@ import { getAdminDb } from '@/lib/firebase/admin';
 import { verifyApiServerUser } from '@/lib/auth/rbac-server';
 import { validateCsrfOrigin } from '@/lib/auth/server-auth';
 import { CreateInvitationSchema } from '@/lib/auth/rbac-schemas';
-import { canInviteUser } from '@/lib/auth/rbac-policy';
+import { canInviteUser, isAdminMutationEnabled } from '@/lib/auth/rbac-policy';
 import { FirestoreInvitationDocument } from '@/types/firestore';
 import { DEMO_TEAMS } from '@/services/reportRepository';
 
@@ -19,6 +19,17 @@ export async function POST(request: NextRequest) {
   const { user: caller, errorResponse } = await verifyApiServerUser(['ADMIN', 'SUPER_ADMIN']);
   if (errorResponse) {
     return errorResponse;
+  }
+
+  // 1.5 Server Feature Gate Check (ADMIN_MUTATIONS_ENABLED)
+  if (!isAdminMutationEnabled()) {
+    return NextResponse.json(
+      {
+        error: 'Fitur mutasi registri pengguna (pembuatan undangan) saat ini tidak diaktifkan pada server.',
+        code: 'MUTATIONS_DISABLED',
+      },
+      { status: 403 }
+    );
   }
 
   // 2. CSRF / Origin Validation

@@ -1,15 +1,19 @@
 'use client';
 
 /**
- * AdminUsersView Component
- * User directory and role management view.
+ * AdminUsersView Component — Phase 2C.2A Controlled Mutation UI
  * 
- * Modes:
- * 1. Live Server Mode (isDesignPreview = false):
- *    Fetches real user registry from server endpoint GET /api/admin/users.
- *    Strictly read-only in Phase 2C.1. Mutation actions (invite, edit role, deactivate) are disabled.
+ * Features:
+ * 1. Live Mode (isDesignPreview = false):
+ *    - Fetches real user registry from GET /api/admin/users.
+ *    - Displays server feature flag status (mutationsEnabled derived from GET response).
+ *    - Implements controlled Invitation Modal, Role Management Modal, and Activation/Deactivation Modal.
+ *    - Submits requests to POST /api/admin/invitations and PATCH /api/admin/users/[uid].
+ *    - Enforces confirmation steps, loading states, inline validation, and error handling (400, 401, 403 MUTATIONS_DISABLED, 409, 500).
+ *    - Re-fetches user registry on successful mutations.
+ *    - Prevents double submissions and client-side authorization bypasses.
  * 2. Design Preview Mode (isDesignPreview = true):
- *    Uses local synthetic DEMO_USERS for client-side interactive prototyping.
+ *    - Preserves client-side synthetic DEMO_USERS simulation for Preview Studio.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -26,7 +30,11 @@ import {
   RefreshCw,
   Lock,
   Calendar,
-  Loader2
+  Loader2,
+  ShieldAlert,
+  UserCheck,
+  UserX,
+  Edit3
 } from 'lucide-react';
 import { DEMO_USERS, DEMO_TEAMS } from '../services/reportRepository';
 import { User, UserRole } from '../types';
@@ -53,20 +61,38 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
   
   // Local state for Design Preview mode
   const [demoUsers, setDemoUsers] = useState<User[]>(DEMO_USERS);
-  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
-  const [inviteSuccessMsg, setInviteSuccessMsg] = useState<string | null>(null);
 
   // Live state for server mode
   const [liveUsers, setLiveUsers] = useState<LiveAdminUser[]>([]);
   const [loading, setLoading] = useState<boolean>(!isDesignPreview);
   const [error, setError] = useState<{ message: string; isAuthError?: boolean } | null>(null);
-  const [readOnlyNotice, setReadOnlyNotice] = useState<string | null>(null);
+  const [mutationsEnabled, setMutationsEnabled] = useState<boolean>(false);
 
-  // Invite Form state (for preview mode simulation)
-  const [newName, setNewName] = useState('');
-  const [newEmail, setNewEmail] = useState('');
+  // Modals & Feedback State
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
+  const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+
+  // Selected Target User for Role or Status Edit
+  const [selectedUser, setSelectedUser] = useState<LiveAdminUser | null>(null);
+
+  // Invitation Form State
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<UserRole>('CONTRIBUTOR');
+  const [inviteTeamId, setInviteTeamId] = useState(DEMO_TEAMS[0].id);
+  const [inviteConfirmStep, setInviteConfirmStep] = useState(false);
+
+  // Role Edit Form State
   const [newRole, setNewRole] = useState<UserRole>('CONTRIBUTOR');
-  const [newTeamId, setNewTeamId] = useState(DEMO_TEAMS[0].id);
+  const [roleConfirmStep, setRoleConfirmStep] = useState(false);
+
+  // Status Toggle Form State
+  const [statusConfirmStep, setStatusConfirmStep] = useState(false);
+
+  // Mutation Submitting & Notice States
+  const [submitting, setSubmitting] = useState(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const [mutationSuccess, setMutationSuccess] = useState<string | null>(null);
 
   // Fetch live users from GET /api/admin/users
   const fetchLiveUsers = useCallback(async () => {
@@ -95,6 +121,7 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
       }
 
       setLiveUsers(data.users || []);
+      setMutationsEnabled(!!data.mutationsEnabled);
     } catch (err) {
       console.error('Failed to fetch live admin users:', err);
       setError({
@@ -111,45 +138,199 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
     }
   }, [isDesignPreview, fetchLiveUsers]);
 
-  const handleSimulateInvite = (e: React.FormEvent) => {
+  // Handle Invitation Submit
+  const handleInviteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isDesignPreview) {
-      if (!newName.trim() || !newEmail.trim()) return;
+    if (!inviteConfirmStep) {
+      setInviteConfirmStep(true);
+      return;
+    }
 
-      const team = DEMO_TEAMS.find((t) => t.id === newTeamId) || DEMO_TEAMS[0];
+    if (isDesignPreview) {
+      // Local preview simulation
+      const team = DEMO_TEAMS.find((t) => t.id === inviteTeamId) || DEMO_TEAMS[0];
       const newUser: User = {
         id: `user-${Date.now()}`,
-        name: newName,
-        email: newEmail,
-        role: newRole,
+        name: inviteEmail.split('@')[0],
+        email: inviteEmail,
+        role: inviteRole,
         teamId: team.id,
         teamName: team.name,
         avatarColor: '#6C2AA6',
-        avatarInitials: newName.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase(),
+        avatarInitials: inviteEmail.slice(0, 2).toUpperCase(),
         active: true,
         lastActive: 'Baru saja diundang (Simulasi)',
       };
-
       setDemoUsers([newUser, ...demoUsers]);
-      setInviteSuccessMsg(`Undangan simulasi berhasil dibuat untuk ${newName} (${newEmail}). Tidak ada surel nyata yang dikirim.`);
+      setMutationSuccess(`Undangan simulasi berhasil dibuat untuk ${inviteEmail}.`);
       setIsInviteModalOpen(false);
-      setNewName('');
-      setNewEmail('');
+      resetInviteForm();
+      return;
+    }
 
-      setTimeout(() => {
-        setInviteSuccessMsg(null);
-      }, 6000);
-    } else {
-      setReadOnlyNotice('Fitur pembuatan undangan pengguna langsung (POST /api/admin/invitations) dikunci pada Fase 2C.1 Read-Only.');
+    setSubmitting(true);
+    setMutationError(null);
+
+    try {
+      const response = await fetch('/api/admin/invitations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: inviteEmail,
+          role: inviteRole,
+          teamId: inviteTeamId,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMutationError(data.error || 'Gagal membuat undangan pengguna.');
+        return;
+      }
+
+      setMutationSuccess(`Undangan berhasil dibuat untuk ${inviteEmail} (Status: PENDING).`);
       setIsInviteModalOpen(false);
+      resetInviteForm();
+      await fetchLiveUsers();
+    } catch (err: any) {
+      setMutationError('Terjadi kesalahan jaringan saat menghubungi server.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const handleLiveActionAttempt = (actionName: string) => {
-    setReadOnlyNotice(`Aksi "${actionName}" tidak tersedia pada Fase 2C.1 Read-Only. Modul mutasi akun akan diaktifkan pada Fase 2C.2.`);
-    setTimeout(() => {
-      setReadOnlyNotice(null);
-    }, 6000);
+  // Handle Role Change Submit
+  const handleRoleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUser) return;
+
+    if (!roleConfirmStep) {
+      setRoleConfirmStep(true);
+      return;
+    }
+
+    if (isDesignPreview) {
+      setDemoUsers((prev) =>
+        prev.map((u) => (u.id === selectedUser.uid ? { ...u, role: newRole } : u))
+      );
+      setMutationSuccess(`Peran pengguna ${selectedUser.email} berhasil diperbarui (Simulasi).`);
+      setIsRoleModalOpen(false);
+      resetRoleForm();
+      return;
+    }
+
+    setSubmitting(true);
+    setMutationError(null);
+
+    try {
+      const response = await fetch(`/api/admin/users/${selectedUser.uid}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMutationError(data.error || 'Gagal memperbarui peran pengguna.');
+        return;
+      }
+
+      setMutationSuccess(`Peran pengguna ${selectedUser.email} berhasil diubah menjadi ${newRole}.`);
+      setIsRoleModalOpen(false);
+      resetRoleForm();
+      await fetchLiveUsers();
+    } catch (err) {
+      setMutationError('Terjadi kesalahan jaringan saat memperbarui peran pengguna.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Handle Status Toggle Submit (Activate/Deactivate)
+  const handleStatusSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUser) return;
+
+    if (!statusConfirmStep) {
+      setStatusConfirmStep(true);
+      return;
+    }
+
+    const targetActiveState = !selectedUser.active;
+
+    if (isDesignPreview) {
+      setDemoUsers((prev) =>
+        prev.map((u) => (u.id === selectedUser.uid ? { ...u, active: targetActiveState } : u))
+      );
+      setMutationSuccess(`Status akun ${selectedUser.email} berhasil diubah (Simulasi).`);
+      setIsStatusModalOpen(false);
+      resetStatusForm();
+      return;
+    }
+
+    setSubmitting(true);
+    setMutationError(null);
+
+    try {
+      const response = await fetch(`/api/admin/users/${selectedUser.uid}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: targetActiveState }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMutationError(data.error || 'Gagal mengubah status akun pengguna.');
+        return;
+      }
+
+      setMutationSuccess(`Status akun ${selectedUser.email} berhasil diubah menjadi ${targetActiveState ? 'Aktif' : 'Nonaktif'}.`);
+      setIsStatusModalOpen(false);
+      resetStatusForm();
+      await fetchLiveUsers();
+    } catch (err) {
+      setMutationError('Terjadi kesalahan jaringan saat mengubah status akun.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const resetInviteForm = () => {
+    setInviteEmail('');
+    setInviteRole('CONTRIBUTOR');
+    setInviteTeamId(DEMO_TEAMS[0].id);
+    setInviteConfirmStep(false);
+    setMutationError(null);
+  };
+
+  const resetRoleForm = () => {
+    setSelectedUser(null);
+    setRoleConfirmStep(false);
+    setMutationError(null);
+  };
+
+  const resetStatusForm = () => {
+    setSelectedUser(null);
+    setStatusConfirmStep(false);
+    setMutationError(null);
+  };
+
+  const openRoleModal = (user: LiveAdminUser) => {
+    setSelectedUser(user);
+    setNewRole(user.role);
+    setRoleConfirmStep(false);
+    setMutationError(null);
+    setIsRoleModalOpen(true);
+  };
+
+  const openStatusModal = (user: LiveAdminUser) => {
+    setSelectedUser(user);
+    setStatusConfirmStep(false);
+    setMutationError(null);
+    setIsStatusModalOpen(true);
   };
 
   const getRoleBadge = (role: UserRole) => {
@@ -199,14 +380,20 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
               Manajemen pengguna & hak akses
             </h1>
             {!isDesignPreview && (
-              <span className="bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full text-[10px] font-bold border border-emerald-200 inline-flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Live API Read-Only
-              </span>
+              mutationsEnabled ? (
+                <span className="bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full text-[10px] font-bold border border-emerald-200 inline-flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Mutasi Aktif (Server)
+                </span>
+              ) : (
+                <span className="bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full text-[10px] font-bold border border-amber-200 inline-flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-amber-600" /> Mutasi Dikunci (ADMIN_MUTATIONS_ENABLED=false)
+                </span>
+              )
             )}
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
             {isDesignPreview
-              ? 'Daftar persona anggota Onewill Academy dan perannya dalam alur pelaporan.'
+              ? 'Daftar persona anggota Onewill Academy dan perannya dalam alur pelaporan (Mode Pratinjau Studio).'
               : 'Daftar terverifikasi seluruh pengguna terdaftar dalam database Firestore Onewill Academy.'}
           </p>
         </div>
@@ -223,44 +410,39 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
             </button>
           )}
 
-          {isDesignPreview ? (
-            <button
-              onClick={() => setIsInviteModalOpen(true)}
-              className="inline-flex items-center justify-center gap-2 min-h-[44px] px-4 py-2 text-xs font-semibold text-white bg-[#6C2AA6] hover:bg-[#35115A] rounded-xl transition-colors cursor-pointer shadow-2xs"
-            >
-              <UserPlus className="w-4 h-4" />
-              <span>Undang Pengguna (Simulasi)</span>
-            </button>
-          ) : (
-            <button
-              onClick={() => handleLiveActionAttempt('Undang Pengguna Baru')}
-              className="inline-flex items-center justify-center gap-2 min-h-[44px] px-4 py-2 text-xs font-semibold text-slate-400 bg-slate-100 border border-slate-200 rounded-xl cursor-not-allowed opacity-80"
-              title="Aksi mutasi dikunci pada Fase 2C.1 Read-Only"
-            >
-              <Lock className="w-3.5 h-3.5" />
-              <span>Undang Pengguna (Read-Only)</span>
-            </button>
-          )}
+          <button
+            onClick={() => {
+              resetInviteForm();
+              setIsInviteModalOpen(true);
+            }}
+            className="inline-flex items-center justify-center gap-2 min-h-[44px] px-4 py-2 text-xs font-semibold text-white bg-[#6C2AA6] hover:bg-[#35115A] rounded-xl transition-colors cursor-pointer shadow-2xs"
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>Undang Pengguna Baru</span>
+          </button>
         </div>
       </div>
 
-      {/* Read-Only Notice Banner */}
-      {readOnlyNotice && (
-        <div className="p-3.5 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs flex items-center justify-between gap-2 shadow-2xs animate-fade-in">
+      {/* Mutation Feedback Banner */}
+      {mutationSuccess && (
+        <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs flex items-center justify-between gap-2 shadow-2xs">
           <div className="flex items-center gap-2">
-            <Info className="w-4 h-4 text-amber-600 shrink-0" />
-            <span>{readOnlyNotice}</span>
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{mutationSuccess}</span>
           </div>
-          <button onClick={() => setReadOnlyNotice(null)} className="text-amber-700 hover:text-amber-950 p-1">
+          <button onClick={() => setMutationSuccess(null)} className="text-emerald-700 hover:text-emerald-950 p-1">
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
-      {inviteSuccessMsg && (
-        <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>{inviteSuccessMsg}</span>
+      {/* Server Feature Gate Warning Banner (if live mode and flag is disabled) */}
+      {!isDesignPreview && !mutationsEnabled && (
+        <div className="p-3.5 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs flex items-center gap-2">
+          <Info className="w-4 h-4 text-amber-600 shrink-0" />
+          <span>
+            <strong>Informasi Fitur Server:</strong> Fitur mutasi server (`ADMIN_MUTATIONS_ENABLED`) saat ini dinonaktifkan secara default di server. Pengiriman mutasi akan diuji terhadap penolakan aman (HTTP 403 `MUTATIONS_DISABLED`).
+          </span>
         </div>
       )}
 
@@ -347,7 +529,7 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
             <span className="text-slate-500 text-[11px]">
               {isDesignPreview
                 ? 'Klik "Uji Masuk" untuk berganti persona secara langsung'
-                : 'Mode Live Read-Only: Seluruh data bersumber langsung dari database'}
+                : 'Pilih aksi pada baris pengguna untuk memperbarui peran atau status akun'}
             </span>
           </div>
 
@@ -361,7 +543,7 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
                   <th className="py-3.5 px-4">Peran (Role)</th>
                   <th className="py-3.5 px-4">Divisi tim</th>
                   <th className="py-3.5 px-4">Status & Tanggal Terdaftar</th>
-                  <th className="py-3.5 px-4 text-right">Aksi</th>
+                  <th className="py-3.5 px-4 text-right">Aksi Terkontrol</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -425,6 +607,10 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
                     })
                   : liveUsers.map((u) => {
                       const teamName = DEMO_TEAMS.find((t) => t.id === u.teamId)?.name || u.teamId;
+                      const isSelf = u.uid === currentUser.id;
+                      const isTargetSuper = u.role === 'SUPER_ADMIN';
+                      const isCallerAdmin = currentUser.role === 'ADMIN';
+                      const isLockedForAdmin = isTargetSuper && isCallerAdmin;
 
                       return (
                         <tr key={u.uid} className="hover:bg-slate-50/70 transition-colors">
@@ -434,7 +620,10 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
                                 {getInitials(u.displayName || u.email)}
                               </div>
                               <div>
-                                <div className="font-bold text-slate-900">{u.displayName || u.email.split('@')[0]}</div>
+                                <div className="font-bold text-slate-900">
+                                  {u.displayName || u.email.split('@')[0]}
+                                  {isSelf && <span className="ml-1 text-[10px] text-emerald-700 font-semibold">(Anda)</span>}
+                                </div>
                                 <div className="text-[10px] text-slate-400 font-mono">UID: {u.uid.slice(0, 8)}...</div>
                               </div>
                             </div>
@@ -455,12 +644,12 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
                           <td className="py-3.5 px-4 text-[11px]">
                             <div className="flex items-center gap-2">
                               {u.active ? (
-                                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 font-semibold rounded-md text-[10px] border border-emerald-200">
-                                  Aktif
+                                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 font-semibold rounded-md text-[10px] border border-emerald-200 flex items-center gap-1">
+                                  <UserCheck className="w-3 h-3 text-emerald-600" /> Aktif
                                 </span>
                               ) : (
-                                <span className="px-2 py-0.5 bg-rose-50 text-rose-700 font-semibold rounded-md text-[10px] border border-rose-200">
-                                  Nonaktif
+                                <span className="px-2 py-0.5 bg-rose-50 text-rose-700 font-semibold rounded-md text-[10px] border border-rose-200 flex items-center gap-1">
+                                  <UserX className="w-3 h-3 text-rose-600" /> Nonaktif
                                 </span>
                               )}
                               <span className="text-slate-400 text-[10px]">{formatCreatedDate(u.createdAt)}</span>
@@ -468,14 +657,40 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
                           </td>
 
                           <td className="py-3.5 px-4 text-right">
-                            <button
-                              onClick={() => handleLiveActionAttempt('Edit Pengguna')}
-                              className="px-2.5 py-1 text-[11px] font-medium text-slate-400 hover:text-slate-600 bg-slate-100 rounded-lg inline-flex items-center gap-1 cursor-pointer"
-                              title="Aksi mutasi dikunci pada Fase 2C.1 Read-Only"
-                            >
-                              <Lock className="w-3 h-3" />
-                              <span>Read-Only</span>
-                            </button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              {/* Edit Role Button */}
+                              {isSelf ? (
+                                <span className="text-[10px] text-slate-400 font-medium px-2 py-1">Role Sendiri</span>
+                              ) : isLockedForAdmin ? (
+                                <span className="text-[10px] text-slate-400 font-medium px-2 py-1">Terkunci (Super Admin)</span>
+                              ) : (
+                                <button
+                                  onClick={() => openRoleModal(u)}
+                                  className="px-2.5 py-1 text-[11px] font-semibold text-[#6C2AA6] hover:text-[#35115A] bg-[#F4EFFA] hover:bg-[#ebdcf9] rounded-lg transition-colors cursor-pointer min-h-[36px] inline-flex items-center gap-1"
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                  <span>Peran</span>
+                                </button>
+                              )}
+
+                              {/* Toggle Status Button */}
+                              {isSelf ? (
+                                <span className="text-[10px] text-slate-400 font-medium px-2 py-1">Akun Sendiri</span>
+                              ) : isLockedForAdmin ? (
+                                null
+                              ) : (
+                                <button
+                                  onClick={() => openStatusModal(u)}
+                                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-colors cursor-pointer min-h-[36px] inline-flex items-center gap-1 ${
+                                    u.active
+                                      ? 'text-rose-700 hover:text-rose-900 bg-rose-50 hover:bg-rose-100'
+                                      : 'text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100'
+                                  }`}
+                                >
+                                  {u.active ? 'Nonaktifkan' : 'Aktifkan'}
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -538,6 +753,10 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
                 })
               : liveUsers.map((u) => {
                   const teamName = DEMO_TEAMS.find((t) => t.id === u.teamId)?.name || u.teamId;
+                  const isSelf = u.uid === currentUser.id;
+                  const isTargetSuper = u.role === 'SUPER_ADMIN';
+                  const isCallerAdmin = currentUser.role === 'ADMIN';
+                  const isLockedForAdmin = isTargetSuper && isCallerAdmin;
 
                   return (
                     <div key={u.uid} className="p-4 hover:bg-slate-50/80 transition-colors space-y-3">
@@ -547,7 +766,10 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
                             {getInitials(u.displayName || u.email)}
                           </div>
                           <div>
-                            <h3 className="text-sm font-bold text-slate-900">{u.displayName || u.email.split('@')[0]}</h3>
+                            <h3 className="text-sm font-bold text-slate-900">
+                              {u.displayName || u.email.split('@')[0]}
+                              {isSelf && <span className="ml-1 text-[10px] text-emerald-700 font-semibold">(Anda)</span>}
+                            </h3>
                             <p className="text-[11px] text-slate-500 font-mono">{u.email}</p>
                           </div>
                         </div>
@@ -565,14 +787,32 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
                         </div>
                       </div>
 
-                      <div className="pt-1">
-                        <button
-                          onClick={() => handleLiveActionAttempt('Kelola Akun')}
-                          className="w-full min-h-[44px] py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                        >
-                          <Lock className="w-3.5 h-3.5" />
-                          <span>Mode Read-Only (Aksi Dikunci)</span>
-                        </button>
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        {!isSelf && !isLockedForAdmin ? (
+                          <>
+                            <button
+                              onClick={() => openRoleModal(u)}
+                              className="w-full min-h-[44px] py-2 px-3 bg-[#F4EFFA] hover:bg-[#ebdcf9] text-[#6C2AA6] text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              <span>Ubah Peran</span>
+                            </button>
+                            <button
+                              onClick={() => openStatusModal(u)}
+                              className={`w-full min-h-[44px] py-2 px-3 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
+                                u.active
+                                  ? 'bg-rose-50 hover:bg-rose-100 text-rose-700'
+                                  : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700'
+                              }`}
+                            >
+                              {u.active ? 'Nonaktifkan' : 'Aktifkan'}
+                            </button>
+                          </>
+                        ) : (
+                          <div className="col-span-2 min-h-[44px] py-2 px-3 bg-slate-100 text-slate-500 text-xs font-medium rounded-xl text-center flex items-center justify-center">
+                            {isSelf ? 'Akun Anda Sendiri (Aksi Terkunci)' : 'Terkunci (Super Admin)'}
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -581,53 +821,180 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
         </div>
       )}
 
-      {/* Invite Modal Simulation */}
+      {/* Controlled Invitation Modal */}
       {isInviteModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full border border-slate-200 overflow-hidden text-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden text-xs">
             <div className="p-4 bg-[#35115A] text-white flex items-center justify-between">
-              <h3 className="text-sm font-bold">Undang pengguna baru (simulasi)</h3>
+              <h3 className="text-sm font-bold flex items-center gap-2">
+                <UserPlus className="w-4 h-4 text-purple-300" />
+                <span>{isDesignPreview ? 'Undang pengguna baru (simulasi)' : 'Buat Undangan Pengguna Baru'}</span>
+              </h3>
               <button
-                onClick={() => setIsInviteModalOpen(false)}
-                className="text-white/70 hover:text-white p-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                onClick={() => {
+                  setIsInviteModalOpen(false);
+                  resetInviteForm();
+                }}
+                disabled={submitting}
+                className="text-white/70 hover:text-white p-2 min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleSimulateInvite} className="p-5 space-y-4">
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-[11px]">
-                <Info className="w-3.5 h-3.5 inline mr-1 text-amber-700" />
-                Mode Uji Coba: Tidak ada surel undangan nyata yang dikirim. Pengguna baru akan ditambahkan ke sesi peramban lokal.
+            <form onSubmit={handleInviteSubmit} className="p-5 space-y-4">
+              {mutationError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-900 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{mutationError}</span>
+                </div>
+              )}
+
+              <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl text-purple-950 text-[11px] space-y-1">
+                <p className="font-semibold flex items-center gap-1">
+                  <Info className="w-3.5 h-3.5 text-[#6C2AA6]" /> Catatan Alur Onboarding:
+                </p>
+                <p>
+                  Membuat undangan PENDING tidak secara otomatis mengirim surel. Penerima dapat mendaftar menggunakan Google Sign-In dengan email yang diundang.
+                </p>
               </div>
 
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1">Nama lengkap</label>
-                <input
-                  type="text"
-                  required
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="Contoh: Farhan Ramadhan"
-                  className="w-full p-2.5 min-h-[44px] text-xs rounded-xl border border-slate-300 focus:border-[#6C2AA6] outline-hidden"
-                />
+              {!inviteConfirmStep ? (
+                <>
+                  <div>
+                    <label className="block text-slate-700 font-semibold mb-1">Surel Perusahaan Google Workspace</label>
+                    <input
+                      type="email"
+                      required
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                      placeholder="pengguna@onewillacademy.id"
+                      className="w-full p-2.5 min-h-[44px] text-xs rounded-xl border border-slate-300 focus:border-[#6C2AA6] outline-hidden bg-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1">Peran (Role)</label>
+                      <select
+                        value={inviteRole}
+                        onChange={(e) => setInviteRole(e.target.value as UserRole)}
+                        className="w-full p-2.5 min-h-[44px] text-xs rounded-xl border border-slate-300 focus:border-[#6C2AA6] outline-hidden bg-white cursor-pointer"
+                      >
+                        <option value="CONTRIBUTOR">Kontributor</option>
+                        <option value="TEAM_LEAD">Team Lead</option>
+                        <option value="MANAGEMENT">Manajemen</option>
+                        <option value="ADMIN">Admin</option>
+                        {currentUser.role === 'SUPER_ADMIN' && <option value="SUPER_ADMIN">Super Admin</option>}
+                      </select>
+                      {currentUser.role === 'ADMIN' && (
+                        <span className="text-[10px] text-slate-400 block mt-0.5">
+                          Super Admin hanya dapat diundang oleh Super Admin.
+                        </span>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1">Divisi / Tim</label>
+                      <select
+                        value={inviteTeamId}
+                        onChange={(e) => setInviteTeamId(e.target.value)}
+                        className="w-full p-2.5 min-h-[44px] text-xs rounded-xl border border-slate-300 focus:border-[#6C2AA6] outline-hidden bg-white cursor-pointer"
+                      >
+                        {DEMO_TEAMS.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                /* Confirmation Step */
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                  <h4 className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                    <ShieldAlert className="w-4 h-4 text-[#6C2AA6]" /> Konfirmasi Pembuatan Undangan
+                  </h4>
+                  <div className="text-[11px] text-slate-700 space-y-1">
+                    <p><strong>Target Email:</strong> {inviteEmail}</p>
+                    <p><strong>Peran (Role):</strong> {inviteRole}</p>
+                    <p><strong>Divisi:</strong> {DEMO_TEAMS.find(t => t.id === inviteTeamId)?.name || inviteTeamId}</p>
+                  </div>
+                  <p className="text-[10px] text-slate-500 border-t border-slate-200 pt-2">
+                    Apakah Anda yakin ingin mendaftarkan undangan PENDING ini ke sistem?
+                  </p>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => {
+                    if (inviteConfirmStep) {
+                      setInviteConfirmStep(false);
+                    } else {
+                      setIsInviteModalOpen(false);
+                      resetInviteForm();
+                    }
+                  }}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer min-h-[44px]"
+                >
+                  {inviteConfirmStep ? 'Kembali Edit' : 'Batal'}
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="px-4 py-2 font-semibold text-white bg-[#6C2AA6] hover:bg-[#35115A] rounded-xl transition-colors cursor-pointer min-h-[44px] inline-flex items-center gap-2 shadow-2xs"
+                >
+                  {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <span>{inviteConfirmStep ? 'Konfirmasi & Buat Undangan' : 'Tinjau Undangan'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Controlled Role Change Modal */}
+      {isRoleModalOpen && selectedUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden text-xs">
+            <div className="p-4 bg-[#35115A] text-white flex items-center justify-between">
+              <h3 className="text-sm font-bold flex items-center gap-2">
+                <Edit3 className="w-4 h-4 text-purple-300" />
+                <span>Pembaruan Peran (Role) Pengguna</span>
+              </h3>
+              <button
+                onClick={() => {
+                  setIsRoleModalOpen(false);
+                  resetRoleForm();
+                }}
+                disabled={submitting}
+                className="text-white/70 hover:text-white p-2 min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleRoleSubmit} className="p-5 space-y-4">
+              {mutationError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-900 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{mutationError}</span>
+                </div>
+              )}
+
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1 text-slate-800">
+                <p><strong>Pengguna:</strong> {selectedUser.displayName || selectedUser.email}</p>
+                <p><strong>Surel:</strong> {selectedUser.email}</p>
+                <p><strong>Peran Saat Ini:</strong> {selectedUser.role}</p>
               </div>
 
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1">Surel perusahaan</label>
-                <input
-                  type="email"
-                  required
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                  placeholder="farhan@onewill-demo.id"
-                  className="w-full p-2.5 min-h-[44px] text-xs rounded-xl border border-slate-300 focus:border-[#6C2AA6] outline-hidden"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {!roleConfirmStep ? (
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Peran (Role)</label>
+                  <label className="block text-slate-700 font-semibold mb-1">Pilih Peran Baru</label>
                   <select
                     value={newRole}
                     onChange={(e) => setNewRole(e.target.value as UserRole)}
@@ -637,39 +1004,126 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
                     <option value="TEAM_LEAD">Team Lead</option>
                     <option value="MANAGEMENT">Manajemen</option>
                     <option value="ADMIN">Admin</option>
-                    <option value="SUPER_ADMIN">Super Admin</option>
+                    {currentUser.role === 'SUPER_ADMIN' && <option value="SUPER_ADMIN">Super Admin</option>}
                   </select>
                 </div>
-
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Divisi / Tim</label>
-                  <select
-                    value={newTeamId}
-                    onChange={(e) => setNewTeamId(e.target.value)}
-                    className="w-full p-2.5 min-h-[44px] text-xs rounded-xl border border-slate-300 focus:border-[#6C2AA6] outline-hidden bg-white cursor-pointer"
-                  >
-                    {DEMO_TEAMS.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
+              ) : (
+                <div className="p-4 bg-amber-50 border border-amber-200 text-amber-950 rounded-xl space-y-2">
+                  <h4 className="font-bold text-xs flex items-center gap-1.5">
+                    <ShieldAlert className="w-4 h-4 text-amber-700" /> Konfirmasi Perubahan Peran
+                  </h4>
+                  <p className="text-[11px]">
+                    Apakah Anda yakin ingin mengubah peran <strong>{selectedUser.email}</strong> dari <strong>{selectedUser.role}</strong> menjadi <strong>{newRole}</strong>?
+                  </p>
                 </div>
-              </div>
+              )}
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setIsInviteModalOpen(false)}
+                  disabled={submitting}
+                  onClick={() => {
+                    if (roleConfirmStep) {
+                      setRoleConfirmStep(false);
+                    } else {
+                      setIsRoleModalOpen(false);
+                      resetRoleForm();
+                    }
+                  }}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer min-h-[44px]"
+                >
+                  {roleConfirmStep ? 'Kembali Edit' : 'Batal'}
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting || newRole === selectedUser.role}
+                  className="px-4 py-2 font-semibold text-white bg-[#6C2AA6] hover:bg-[#35115A] rounded-xl transition-colors cursor-pointer min-h-[44px] inline-flex items-center gap-2 shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <span>{roleConfirmStep ? 'Konfirmasi Simpan Peran' : 'Lanjutkan'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Controlled Status Toggle Modal (Activate/Deactivate) */}
+      {isStatusModalOpen && selectedUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden text-xs">
+            <div className={`p-4 text-white flex items-center justify-between ${selectedUser.active ? 'bg-rose-900' : 'bg-emerald-900'}`}>
+              <h3 className="text-sm font-bold flex items-center gap-2">
+                {selectedUser.active ? <UserX className="w-4 h-4 text-rose-300" /> : <UserCheck className="w-4 h-4 text-emerald-300" />}
+                <span>{selectedUser.active ? 'Konfirmasi Penonaktifan Akun' : 'Konfirmasi Aktivasi Akun'}</span>
+              </h3>
+              <button
+                onClick={() => {
+                  setIsStatusModalOpen(false);
+                  resetStatusForm();
+                }}
+                disabled={submitting}
+                className="text-white/70 hover:text-white p-2 min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleStatusSubmit} className="p-5 space-y-4">
+              {mutationError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-900 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{mutationError}</span>
+                </div>
+              )}
+
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1 text-slate-800">
+                <p><strong>Pengguna:</strong> {selectedUser.displayName || selectedUser.email}</p>
+                <p><strong>Surel:</strong> {selectedUser.email}</p>
+                <p><strong>Status Saat Ini:</strong> {selectedUser.active ? 'Aktif' : 'Nonaktif'}</p>
+              </div>
+
+              {selectedUser.active ? (
+                <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-950 rounded-xl space-y-2">
+                  <h4 className="font-bold text-xs flex items-center gap-1.5 text-rose-800">
+                    <ShieldAlert className="w-4 h-4 text-rose-600" /> PERINGATAN PENONAKTIFAN
+                  </h4>
+                  <p className="text-[11px]">
+                    Akun <strong>{selectedUser.email}</strong> akan dinonaktifkan. Pengguna tidak dapat lagi masuk ke dashboard. Akun tidak akan dihapus dari Firebase Auth.
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-950 rounded-xl space-y-2">
+                  <h4 className="font-bold text-xs flex items-center gap-1.5 text-emerald-800">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> AKTIVASI AKUN
+                  </h4>
+                  <p className="text-[11px]">
+                    Akun <strong>{selectedUser.email}</strong> akan diaktifkan kembali dan dapat masuk ke dashboard Onewill Academy.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => {
+                    setIsStatusModalOpen(false);
+                    resetStatusForm();
+                  }}
                   className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer min-h-[44px]"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 font-semibold text-white bg-[#6C2AA6] hover:bg-[#35115A] rounded-xl transition-colors cursor-pointer min-h-[44px]"
+                  disabled={submitting}
+                  className={`px-4 py-2 font-semibold text-white rounded-xl transition-colors cursor-pointer min-h-[44px] inline-flex items-center gap-2 shadow-2xs ${
+                    selectedUser.active ? 'bg-rose-700 hover:bg-rose-900' : 'bg-emerald-700 hover:bg-emerald-900'
+                  }`}
                 >
-                  Simulasikan Undangan
+                  {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <span>{selectedUser.active ? 'Ya, Nonaktifkan Akun' : 'Ya, Aktifkan Akun'}</span>
                 </button>
               </div>
             </form>

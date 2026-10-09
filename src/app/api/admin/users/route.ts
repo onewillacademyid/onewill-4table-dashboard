@@ -9,6 +9,7 @@ import { getAdminDb } from '@/lib/firebase/admin';
 import { verifyApiServerUser } from '@/lib/auth/rbac-server';
 import { FirestoreUserDocument } from '@/types/firestore';
 import { UserRole } from '@/types';
+import { isAdminMutationEnabled } from '@/lib/auth/rbac-policy';
 
 export async function GET(request: NextRequest) {
   // 1. Session & Role Verification
@@ -66,6 +67,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       users: sanitizedUsers,
       total: sanitizedUsers.length,
+      mutationsEnabled: isAdminMutationEnabled(),
     });
   } catch (err: any) {
     console.error('Failed to fetch user registry:', err);

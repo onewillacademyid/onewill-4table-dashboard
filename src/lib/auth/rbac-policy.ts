@@ -25,6 +25,15 @@ export interface AuthorizationResult {
 }
 
 /**
+ * Evaluates whether live Admin mutations (invitations, role updates, deactivation)
+ * are enabled on the server via ADMIN_MUTATIONS_ENABLED environment variable.
+ * Disabled by default (false). Cannot be enabled by query params, localStorage, or client state.
+ */
+export function isAdminMutationEnabled(): boolean {
+  return process.env.ADMIN_MUTATIONS_ENABLED === 'true';
+}
+
+/**
  * Evaluates whether a user can access org-wide dashboard metrics or team-restricted metrics.
  */
 export function canViewDashboardOrgWide(role: UserRole): boolean {
