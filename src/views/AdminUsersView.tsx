@@ -44,6 +44,11 @@ export interface AdminUsersViewProps {
   isDesignPreview?: boolean;
 }
 
+export const ALL_SUPPORTED_TEAMS = [
+  { id: 'team-executive', name: 'Manajemen / Executive' },
+  ...DEMO_TEAMS,
+];
+
 export interface LiveAdminUser {
   uid: string;
   email: string;
@@ -606,7 +611,7 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
                       );
                     })
                   : liveUsers.map((u) => {
-                      const teamName = DEMO_TEAMS.find((t) => t.id === u.teamId)?.name || u.teamId;
+                      const teamName = ALL_SUPPORTED_TEAMS.find((t) => t.id === u.teamId)?.name || u.teamId;
                       const isSelf = u.uid === currentUser.id;
                       const isTargetSuper = u.role === 'SUPER_ADMIN';
                       const isCallerAdmin = currentUser.role === 'ADMIN';
@@ -752,7 +757,7 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
                   );
                 })
               : liveUsers.map((u) => {
-                  const teamName = DEMO_TEAMS.find((t) => t.id === u.teamId)?.name || u.teamId;
+                  const teamName = ALL_SUPPORTED_TEAMS.find((t) => t.id === u.teamId)?.name || u.teamId;
                   const isSelf = u.uid === currentUser.id;
                   const isTargetSuper = u.role === 'SUPER_ADMIN';
                   const isCallerAdmin = currentUser.role === 'ADMIN';
@@ -901,7 +906,7 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
                         onChange={(e) => setInviteTeamId(e.target.value)}
                         className="w-full p-2.5 min-h-[44px] text-xs rounded-xl border border-slate-300 focus:border-[#6C2AA6] outline-hidden bg-white cursor-pointer"
                       >
-                        {DEMO_TEAMS.map((t) => (
+                        {ALL_SUPPORTED_TEAMS.map((t) => (
                           <option key={t.id} value={t.id}>
                             {t.name}
                           </option>
@@ -919,7 +924,7 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
                   <div className="text-[11px] text-slate-700 space-y-1">
                     <p><strong>Target Email:</strong> {inviteEmail}</p>
                     <p><strong>Peran (Role):</strong> {inviteRole}</p>
-                    <p><strong>Divisi:</strong> {DEMO_TEAMS.find(t => t.id === inviteTeamId)?.name || inviteTeamId}</p>
+                    <p><strong>Divisi:</strong> {ALL_SUPPORTED_TEAMS.find(t => t.id === inviteTeamId)?.name || inviteTeamId}</p>
                   </div>
                   <p className="text-[10px] text-slate-500 border-t border-slate-200 pt-2">
                     Apakah Anda yakin ingin mendaftarkan undangan PENDING ini ke sistem?

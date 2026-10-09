@@ -122,6 +122,15 @@ async function runAdminUsersViewComponentTests() {
     'Interactive buttons adhere to 44px minimum touch target guidelines for mobile/tablet'
   );
 
+  // 7. Executive Team Selector Availability Check
+  console.log('\n[7] Executive Team Selector Availability Check:');
+  const { ALL_SUPPORTED_TEAMS } = await import('../src/views/AdminUsersView');
+  const executiveTeam = ALL_SUPPORTED_TEAMS.find((t) => t.id === 'team-executive');
+  assert(
+    executiveTeam !== undefined && executiveTeam.name === 'Manajemen / Executive',
+    'team-executive is present in ALL_SUPPORTED_TEAMS with label "Manajemen / Executive"'
+  );
+
   console.log('===========================================================');
   console.log(` Read-Only UI Component QA Summary: ${passedCount} Passed, ${failedCount} Failed.`);
   console.log('===========================================================');
