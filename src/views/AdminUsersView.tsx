@@ -62,7 +62,7 @@ export interface LiveAdminUser {
 }
 
 export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview = false }) => {
-  const { currentUser, switchUser } = useAuth();
+  const { currentUser, isSessionLoading, switchUser } = useAuth();
   
   // Local state for Design Preview mode
   const [demoUsers, setDemoUsers] = useState<User[]>(DEMO_USERS);
@@ -612,9 +612,9 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
                     })
                   : liveUsers.map((u) => {
                       const teamName = ALL_SUPPORTED_TEAMS.find((t) => t.id === u.teamId)?.name || u.teamId;
-                      const isSelf = u.uid === currentUser.id;
+                      const isSelf = u.uid === currentUser?.id;
                       const isTargetSuper = u.role === 'SUPER_ADMIN';
-                      const isCallerAdmin = currentUser.role === 'ADMIN';
+                      const isCallerAdmin = currentUser?.role === 'ADMIN';
                       const isLockedForAdmin = isTargetSuper && isCallerAdmin;
 
                       return (
@@ -758,9 +758,9 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
                 })
               : liveUsers.map((u) => {
                   const teamName = ALL_SUPPORTED_TEAMS.find((t) => t.id === u.teamId)?.name || u.teamId;
-                  const isSelf = u.uid === currentUser.id;
+                  const isSelf = u.uid === currentUser?.id;
                   const isTargetSuper = u.role === 'SUPER_ADMIN';
-                  const isCallerAdmin = currentUser.role === 'ADMIN';
+                  const isCallerAdmin = currentUser?.role === 'ADMIN';
                   const isLockedForAdmin = isTargetSuper && isCallerAdmin;
 
                   return (
@@ -890,9 +890,9 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
                         <option value="TEAM_LEAD">Team Lead</option>
                         <option value="MANAGEMENT">Manajemen</option>
                         <option value="ADMIN">Admin</option>
-                        {currentUser.role === 'SUPER_ADMIN' && <option value="SUPER_ADMIN">Super Admin</option>}
+                        {currentUser?.role === 'SUPER_ADMIN' && <option value="SUPER_ADMIN">Super Admin</option>}
                       </select>
-                      {currentUser.role === 'ADMIN' && (
+                      {currentUser?.role === 'ADMIN' && (
                         <span className="text-[10px] text-slate-400 block mt-0.5">
                           Super Admin hanya dapat diundang oleh Super Admin.
                         </span>
@@ -1009,7 +1009,7 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ isDesignPreview 
                     <option value="TEAM_LEAD">Team Lead</option>
                     <option value="MANAGEMENT">Manajemen</option>
                     <option value="ADMIN">Admin</option>
-                    {currentUser.role === 'SUPER_ADMIN' && <option value="SUPER_ADMIN">Super Admin</option>}
+                    {currentUser?.role === 'SUPER_ADMIN' && <option value="SUPER_ADMIN">Super Admin</option>}
                   </select>
                 </div>
               ) : (

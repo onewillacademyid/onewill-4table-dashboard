@@ -103,6 +103,20 @@ export const ReviewsQueueView: React.FC<ReviewsQueueViewProps> = ({ onOpenReport
     }
   };
 
+  if (!currentUser || currentUser.role === 'CONTRIBUTOR') {
+    return (
+      <div className="max-w-xl mx-auto my-12 p-8 bg-white border border-rose-200 rounded-3xl text-center space-y-4 shadow-sm">
+        <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center mx-auto">
+          <ShieldAlert className="w-6 h-6" />
+        </div>
+        <h2 className="text-lg font-bold text-slate-900">Akses Ditolak</h2>
+        <p className="text-xs text-slate-600 leading-relaxed">
+          Peran Kontributor tidak memiliki hak akses persetujuan manajerial atau peninjauan laporan.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 text-slate-900 font-sans">
       {/* Header Banner */}
@@ -125,7 +139,7 @@ export const ReviewsQueueView: React.FC<ReviewsQueueViewProps> = ({ onOpenReport
           <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl text-xs flex items-center justify-between gap-3">
             <div>
               <span className="text-slate-500">Peninjau aktif: </span>
-              <strong className="text-slate-900 font-semibold">{currentUser.name}</strong> ({currentUser.role})
+              <strong className="text-slate-900 font-semibold">{currentUser?.name || ''}</strong> ({currentUser?.role || ''})
             </div>
             <button
               onClick={openLoginModal}

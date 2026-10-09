@@ -18,13 +18,17 @@ export const Header: React.FC = () => {
   const router = useRouter();
   const { currentUser, isLiveAuth, isAuthenticated, logout, openLoginModal } = useAuth();
 
-  const navItems = [
-    { href: '/dashboard', label: 'Ringkasan' },
-    { href: '/reports', label: 'Daftar Laporan' },
-    { href: '/reviews', label: 'Antrean Tinjauan' },
-    { href: '/admin/users', label: 'Pengguna' },
-    { href: '/admin/integrations', label: 'Integrasi Drive' },
+  const rawNavItems = [
+    { href: '/dashboard', label: 'Ringkasan', allowedRoles: ['SUPER_ADMIN', 'ADMIN', 'MANAGEMENT', 'TEAM_LEAD', 'CONTRIBUTOR'] },
+    { href: '/reports', label: 'Daftar Laporan', allowedRoles: ['SUPER_ADMIN', 'ADMIN', 'MANAGEMENT', 'TEAM_LEAD', 'CONTRIBUTOR'] },
+    { href: '/reviews', label: 'Antrean Tinjauan', allowedRoles: ['SUPER_ADMIN', 'ADMIN', 'MANAGEMENT', 'TEAM_LEAD'] },
+    { href: '/admin/users', label: 'Pengguna', allowedRoles: ['SUPER_ADMIN', 'ADMIN'] },
+    { href: '/admin/integrations', label: 'Integrasi Drive', allowedRoles: ['SUPER_ADMIN'] },
   ];
+
+  const navItems = currentUser
+    ? rawNavItems.filter((item) => item.allowedRoles.includes(currentUser.role))
+    : rawNavItems.filter((item) => ['/dashboard', '/reports'].includes(item.href));
 
   const getRoleLabel = (role: string) => {
     switch (role) {
@@ -43,7 +47,7 @@ export const Header: React.FC = () => {
       <div className="bg-[#35115A] text-white text-[11px] py-1 px-4 text-center font-medium flex items-center justify-center gap-2">
         <span className={`inline-block w-2 h-2 rounded-full ${isLiveAuth ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
         <span>
-          {isLiveAuth
+          {isLiveAuth && currentUser
             ? `Sesi Otentikasi Terverifikasi: ${currentUser.email} (${getRoleLabel(currentUser.role)})`
             : 'Mode Demo UI • Otentikasi Simulasikan Berfungsi'}
         </span>
@@ -130,7 +134,7 @@ export const Header: React.FC = () => {
               <span>Buat Laporan</span>
             </Link>
 
-            {isLiveAuth ? (
+            {isLiveAuth && currentUser ? (
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-2 pl-2 pr-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-xs text-emerald-900">
                   <ShieldCheck className="w-4 h-4 text-emerald-600" />

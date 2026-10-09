@@ -25,6 +25,7 @@ import { reportRepository, DEMO_TEAMS } from '../services/reportRepository';
 import { StatusBadge } from '../components/StatusBadge';
 import { formatDateTimeIndonesian } from '../utils/dateUtils';
 import { useAuth } from '../context/AuthContext';
+import { canReadReport } from '@/lib/auth/rbac-policy';
 
 interface ReportsListViewProps {
   onOpenReport: (reportId: string) => void;
@@ -35,30 +36,43 @@ export const ReportsListView: React.FC<ReportsListViewProps> = ({
   onOpenReport,
   onNewReport,
 }) => {
-  const { currentUser } = useAuth();
+  const { currentUser, isSessionLoading } = useAuth();
   const [reports, setReports] = useState<WeeklyReport[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
-  const [selectedTeam, setSelectedTeam] = useState<string>('ALL');
+  const [selectedTeam, setSelectedTeam] = useState<string>(
+    currentUser?.role === 'CONTRIBUTOR' ? (currentUser.teamId || 'ALL') : 'ALL'
+  );
   const [filterMyReportsOnly, setFilterMyReportsOnly] = useState(false);
 
   useEffect(() => {
-    loadReports();
-  }, [selectedStatus, selectedTeam, filterMyReportsOnly]);
+    if (currentUser?.role === 'CONTRIBUTOR' && currentUser.teamId) {
+      setSelectedTeam(currentUser.teamId);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (currentUser) {
+      loadReports();
+    }
+  }, [selectedStatus, selectedTeam, filterMyReportsOnly, currentUser]);
 
   const loadReports = async () => {
+    if (!currentUser) return;
     setIsLoading(true);
     try {
+      const activeTeam = currentUser.role === 'CONTRIBUTOR' ? currentUser.teamId : (selectedTeam !== 'ALL' ? selectedTeam : undefined);
       const data = await reportRepository.listReports({
         status: selectedStatus as any,
-        teamId: selectedTeam !== 'ALL' ? selectedTeam : undefined,
+        teamId: activeTeam,
         authorId: filterMyReportsOnly ? currentUser.id : undefined,
         searchQuery: searchQuery.trim() || undefined,
       });
-      setReports(data);
+      const allowedData = data.filter((r) => canReadReport(currentUser, r).allowed);
+      setReports(allowedData);
     } catch (err) {
       console.error(err);
     } finally {
@@ -169,7 +183,7 @@ export const ReportsListView: React.FC<ReportsListViewProps> = ({
             }`}
           >
             <UserCheck className="w-3.5 h-3.5" />
-            <span>Hanya laporan saya ({currentUser.name})</span>
+            <span>Hanya laporan saya ({currentUser?.name || ''})</span>
           </button>
 
           <button

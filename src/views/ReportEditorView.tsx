@@ -46,7 +46,7 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
   onBack,
   onSaved,
 }) => {
-  const { currentUser } = useAuth();
+  const { currentUser, isSessionLoading } = useAuth();
   const currentWeekInfo = getISOWeekNumber(new Date('2026-10-08'));
 
   const [loading, setLoading] = useState(true);
@@ -54,7 +54,7 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
 
   // Form Fields
   const [title, setTitle] = useState('');
-  const [teamId, setTeamId] = useState(currentUser.teamId);
+  const [teamId, setTeamId] = useState(currentUser?.teamId || 'team-operasional');
   const [weekNumber, setWeekNumber] = useState(currentWeekInfo.week);
   const [year, setYear] = useState(currentWeekInfo.year);
   const [sections, setSections] = useState<WeeklyReportSections>(emptySections);

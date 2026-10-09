@@ -23,7 +23,9 @@ import {
   ChevronRight, 
   FileText,
   UserCheck,
-  ArrowRight
+  ArrowRight,
+  Plus,
+  Loader2
 } from 'lucide-react';
 import { WeeklyReport, DashboardMetrics } from '../types';
 import { reportRepository, DEMO_TEAMS } from '../services/reportRepository';
@@ -31,6 +33,7 @@ import { MetricCard } from '../components/MetricCard';
 import { StatusBadge } from '../components/StatusBadge';
 import { getWeekDates, formatDateTimeIndonesian } from '../utils/dateUtils';
 import { useAuth } from '../context/AuthContext';
+import { canReadReport, canViewDashboardOrgWide } from '@/lib/auth/rbac-policy';
 
 interface DashboardViewProps {
   onOpenReport: (reportId: string) => void;
@@ -43,15 +46,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onNewReport,
   onNavigateToReviews,
 }) => {
-  const { currentUser } = useAuth();
+  const { currentUser, isSessionLoading } = useAuth();
+  const isOrgWideAccess = currentUser ? canViewDashboardOrgWide(currentUser.role) : false;
+
   const [selectedWeek, setSelectedWeek] = useState(41);
   const [selectedYear, setSelectedYear] = useState(2026);
-  const [selectedTeam, setSelectedTeam] = useState<string>('ALL');
+  // Restrict team selector to current user's team if not authorized for org-wide view
+  const [selectedTeam, setSelectedTeam] = useState<string>(
+    isOrgWideAccess && currentUser ? 'ALL' : (currentUser?.teamId || 'ALL')
+  );
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [recentReports, setRecentReports] = useState<WeeklyReport[]>([]);
   const [allReports, setAllReports] = useState<WeeklyReport[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [isLoading, setIsLoading] = useState(true);
+
+  // Sync selected team when currentUser loads
+  useEffect(() => {
+    if (currentUser && !isOrgWideAccess && currentUser.teamId) {
+      setSelectedTeam(currentUser.teamId);
+    }
+  }, [currentUser, isOrgWideAccess]);
 
   // Drilldown modal states
   const [drilldownType, setDrilldownType] = useState<'NONE' | 'CRITICAL_ISSUES' | 'SUPPORT_REQUESTS'>('NONE');
@@ -59,30 +74,45 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const weekInfo = getWeekDates(selectedWeek, selectedYear);
 
   useEffect(() => {
-    loadDashboardData();
-  }, [selectedWeek, selectedYear, selectedTeam]);
+    if (currentUser) {
+      loadDashboardData();
+    }
+  }, [selectedWeek, selectedYear, selectedTeam, currentUser]);
 
   const loadDashboardData = async () => {
+    if (!currentUser) return;
     setIsLoading(true);
     try {
-      const dataMetrics = await reportRepository.getMetrics(selectedWeek, selectedYear, selectedTeam);
+      const activeTeamFilter = !isOrgWideAccess ? currentUser.teamId : (selectedTeam !== 'ALL' ? selectedTeam : undefined);
+      const dataMetrics = await reportRepository.getMetrics(selectedWeek, selectedYear, activeTeamFilter);
       setMetrics(dataMetrics);
 
       const all = await reportRepository.listReports();
-      setAllReports(all);
+      const readableAll = all.filter((r) => canReadReport(currentUser, r).allowed);
+      setAllReports(readableAll);
 
       const reports = await reportRepository.listReports({
         weekNumber: selectedWeek,
         year: selectedYear,
-        teamId: selectedTeam !== 'ALL' ? selectedTeam : undefined,
+        teamId: activeTeamFilter,
       });
-      setRecentReports(reports);
+      const readableRecent = reports.filter((r) => canReadReport(currentUser, r).allowed);
+      setRecentReports(readableRecent);
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
     } finally {
       setIsLoading(false);
     }
   };
+
+  if (isSessionLoading || !currentUser) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] py-16 text-slate-500 space-y-3">
+        <Loader2 className="w-8 h-8 text-[#6C2AA6] animate-spin" />
+        <p className="text-xs font-semibold text-slate-600">Memuat sesi otentikasi dasbor...</p>
+      </div>
+    );
+  }
 
   // Collect distinct weeks for selector
   const availableWeeks = React.useMemo(() => {
@@ -295,13 +325,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="pt-2">
-            <button
-              onClick={onNavigateToReviews}
-              className="w-full min-h-[44px] py-2.5 px-4 bg-[#35115A] hover:bg-[#6C2AA6] text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-2xs"
-            >
-              <span>Buka antrean tinjauan</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            {currentUser.role === 'CONTRIBUTOR' ? (
+              <button
+                onClick={onNewReport}
+                className="w-full min-h-[44px] py-2.5 px-4 bg-[#6C2AA6] hover:bg-[#35115A] text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-2xs"
+              >
+                <span>Buat Laporan Baru</span>
+                <Plus className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                onClick={onNavigateToReviews}
+                className="w-full min-h-[44px] py-2.5 px-4 bg-[#35115A] hover:bg-[#6C2AA6] text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-2xs"
+              >
+                <span>Buka antrean tinjauan</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       </div>

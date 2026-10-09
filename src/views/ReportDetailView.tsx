@@ -33,6 +33,7 @@ import { FourTableGrid } from '../components/FourTableGrid';
 import { StatusBadge } from '../components/StatusBadge';
 import { formatDateTimeIndonesian } from '../utils/dateUtils';
 import { useAuth } from '../context/AuthContext';
+import { canReadReport } from '@/lib/auth/rbac-policy';
 
 interface ReportDetailViewProps {
   reportId: string;
@@ -76,9 +77,38 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
     }
   };
 
+  const readPermission = report ? canReadReport(currentUser, report) : { allowed: true };
   const approvalCheck = report ? canApprove(report) : { allowed: false };
   const userCanEdit = report ? canEdit(report) : false;
   const userCanArchive = report ? canArchive(report) : false;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20 text-slate-500 text-sm">
+        Memuat detail laporan...
+      </div>
+    );
+  }
+
+  if (report && !readPermission.allowed) {
+    return (
+      <div className="max-w-xl mx-auto my-12 p-8 bg-white border border-rose-200 rounded-3xl text-center space-y-4 shadow-sm">
+        <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center mx-auto">
+          <AlertOctagon className="w-6 h-6" />
+        </div>
+        <h2 className="text-lg font-bold text-slate-900">Akses Ditolak</h2>
+        <p className="text-xs text-slate-600 leading-relaxed">
+          {readPermission.reason || 'Anda tidak memiliki hak akses untuk membaca laporan dari divisi ini.'}
+        </p>
+        <button
+          onClick={onBack}
+          className="px-4 py-2.5 bg-[#35115A] text-white text-xs font-bold rounded-xl hover:bg-[#6C2AA6] transition-colors cursor-pointer"
+        >
+          Kembali ke Daftar Laporan
+        </button>
+      </div>
+    );
+  }
 
   const handleExecuteReview = async () => {
     if (!report) return;

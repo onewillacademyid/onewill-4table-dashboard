@@ -12,10 +12,11 @@ import { DEMO_USERS } from '../services/reportRepository';
 import { fetchServerSession, logoutClient } from '@/lib/firebase/auth-client';
 
 interface AuthContextType {
-  currentUser: User;
+  currentUser: User | null;
   allUsers: User[];
   isAuthenticated: boolean;
   isLiveAuth: boolean;
+  isSessionLoading: boolean;
   switchUser: (userId: string) => void;
   refreshSession: () => Promise<void>;
   logout: () => Promise<void>;
@@ -34,32 +35,28 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const CURRENT_USER_KEY = 'onewill_demo_current_user_id';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<User>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const savedId = localStorage.getItem(CURRENT_USER_KEY);
-        const found = DEMO_USERS.find((u) => u.id === savedId);
-        if (found) return found;
-      } catch {
-        // ignore
-      }
-    }
-    return DEMO_USERS[1];
-  });
-
+  // Real authenticated runtime initializes currentUser as null until server session resolves
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isLiveAuth, setIsLiveAuth] = useState<boolean>(false);
+  const [isSessionLoading, setIsSessionLoading] = useState<boolean>(true);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
 
   const refreshSession = useCallback(async () => {
-    const res = await fetchServerSession();
-    if (res.success && res.user) {
-      setCurrentUser(res.user);
-      setIsAuthenticated(true);
-      setIsLiveAuth(true);
-    } else {
-      setIsAuthenticated(false);
-      setIsLiveAuth(false);
+    setIsSessionLoading(true);
+    try {
+      const res = await fetchServerSession();
+      if (res.success && res.user) {
+        setCurrentUser(res.user);
+        setIsAuthenticated(true);
+        setIsLiveAuth(true);
+      } else {
+        setCurrentUser(null);
+        setIsAuthenticated(false);
+        setIsLiveAuth(false);
+      }
+    } finally {
+      setIsSessionLoading(false);
     }
   }, []);
 
@@ -71,11 +68,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await logoutClient();
     setIsAuthenticated(false);
     setIsLiveAuth(false);
-    // Fall back to demo user persona
-    setCurrentUser(DEMO_USERS[1]);
+    setCurrentUser(null);
   };
 
   const switchUser = (userId: string) => {
+    // Prohibit demo persona switching from overriding active live Firebase session
+    if (isLiveAuth) {
+      console.warn('Switch user ignored: Live Firebase session is active.');
+      return;
+    }
     const user = DEMO_USERS.find((u) => u.id === userId);
     if (user) {
       setCurrentUser(user);
@@ -90,12 +91,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  /**
-   * Evaluates if the current user can approve a report.
-   * STRICT RULE: No self-approval under any role!
-   * Permitted roles for review: TEAM_LEAD, MANAGEMENT, ADMIN, SUPER_ADMIN.
-   */
   const canApprove = (report: WeeklyReport): { allowed: boolean; reason?: string } => {
+    if (!currentUser) {
+      return { allowed: false, reason: 'Pengguna belum terotentikasi.' };
+    }
+
     if (report.status !== 'SUBMITTED') {
       return { allowed: false, reason: 'Laporan belum diajukan untuk peninjauan (status bukan SUBMITTED).' };
     }
@@ -125,11 +125,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { allowed: true };
   };
 
-  /**
-   * Evaluates if the current user can edit a report.
-   * Reports can only be edited if in DRAFT or NEEDS_REVISION state.
-   */
   const canEdit = (report: WeeklyReport): boolean => {
+    if (!currentUser) return false;
     if (report.status === 'APPROVED' || report.status === 'ARCHIVED') {
       return false;
     }
@@ -142,6 +139,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const canSubmit = (report: WeeklyReport): boolean => {
+    if (!currentUser) return false;
     if (report.status !== 'DRAFT' && report.status !== 'NEEDS_REVISION') {
       return false;
     }
@@ -149,11 +147,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const canArchive = (report: WeeklyReport): boolean => {
+    if (!currentUser) return false;
     if (report.status !== 'APPROVED') return false;
     return ['MANAGEMENT', 'ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
   };
 
-  const canManageUsers = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
+  const canManageUsers = currentUser ? ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) : false;
 
   return (
     <AuthContext.Provider
@@ -162,6 +161,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         allUsers: DEMO_USERS,
         isAuthenticated,
         isLiveAuth,
+        isSessionLoading,
         refreshSession,
         logout,
         switchUser,
