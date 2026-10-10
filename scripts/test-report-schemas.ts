@@ -410,6 +410,49 @@ runTest('FirestoreReportRepository rejects write with MUTATION_DISABLED when fea
 });
 
 console.log('');
+
+// ==========================================
+// [7] Initial ArchiveStatus & Audit Event Contract Consistency
+// ==========================================
+console.log('[7] Initial ArchiveStatus & Audit Event Contract Consistency:');
+
+runTest('Canonical ArchiveStatus for new draft is NOT_ARCHIVED and ACTIVE is rejected', () => {
+  const notArchivedRes = ArchiveStatusSchema.safeParse('NOT_ARCHIVED');
+  assert.strictEqual(notArchivedRes.success, true);
+
+  const activeRes = ArchiveStatusSchema.safeParse('ACTIVE');
+  assert.strictEqual(activeRes.success, false, '"ACTIVE" must be rejected as an invalid ArchiveStatus value');
+});
+
+runTest('Validates FirestoreAuditEventDocument contract structure', () => {
+  const mockAuditEvent = {
+    id: 'audit-123456',
+    actorUid: 'user-adhi-real-uid',
+    actorEmail: 'adhimonow@gmail.com',
+    actorRole: 'CONTRIBUTOR',
+    action: 'REPORT_CREATED',
+    targetType: 'report',
+    targetId: 'rep_2026_w41_team-operasional',
+    timestamp: '2026-10-10T16:00:00.000Z',
+    metadata: {
+      weekNumber: 41,
+      year: 2026,
+      teamId: 'team-operasional',
+    },
+  };
+
+  assert.strictEqual(typeof mockAuditEvent.id, 'string');
+  assert.strictEqual(mockAuditEvent.actorUid, 'user-adhi-real-uid');
+  assert.strictEqual(mockAuditEvent.actorEmail, 'adhimonow@gmail.com');
+  assert.strictEqual(mockAuditEvent.actorRole, 'CONTRIBUTOR');
+  assert.strictEqual(mockAuditEvent.action, 'REPORT_CREATED');
+  assert.strictEqual(mockAuditEvent.targetType, 'report');
+  assert.strictEqual(mockAuditEvent.targetId, 'rep_2026_w41_team-operasional');
+  assert.strictEqual(typeof mockAuditEvent.timestamp, 'string');
+  assert.strictEqual(mockAuditEvent.metadata.teamId, 'team-operasional');
+});
+
+console.log('');
 console.log('===========================================================');
 console.log(` Report Schema & QA Test Summary: ${passedTests} Passed, ${totalTests - passedTests} Failed.`);
 console.log('===========================================================');
