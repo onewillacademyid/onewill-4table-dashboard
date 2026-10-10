@@ -18,6 +18,7 @@
     "test:reports-api-http": "tsx scripts/test-reports-api-http.ts",
     "test:rbac-consistency": "tsx scripts/test-rbac-consistency.ts",
     "test:firestore-emulator": "tsx scripts/test-firestore-pagination-emulator.ts",
+    "test:e2e": "playwright test",
     "test": "tsx scripts/test-rbac-policy.ts && tsx scripts/test-admin-api-logic.ts && tsx scripts/test-admin-api-http.ts && tsx scripts/test-admin-users-view-logic.ts && tsx scripts/test-admin-mutations-controlled.ts && tsx scripts/test-report-schemas.ts && tsx scripts/test-reports-api-http.ts && tsx scripts/test-rbac-consistency.ts && tsx scripts/test-firestore-pagination-emulator.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",

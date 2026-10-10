@@ -4,7 +4,10 @@ build/
 dist/
 .next/
 tsconfig.tsbuildinfo
-coverage/
+# Playwright Test Artifacts
+playwright-report/
+test-results/
+
 .DS_Store
 *.log
 
