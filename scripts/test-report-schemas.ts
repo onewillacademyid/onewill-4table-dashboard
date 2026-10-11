@@ -22,6 +22,7 @@ import {
 import { serializeFirestoreTimestamp } from '../src/types/firestore';
 import { FirestoreReportRepository } from '../src/lib/repos/firestore-report-repository';
 import { User } from '../src/types';
+import { getISOWeekNumber, getWeekDates } from '../src/utils/dateUtils';
 
 console.log('===========================================================');
 console.log(' ONEWILL ACADEMY — M4.1 PHASE B SCHEMA & QA TEST SUITE    ');
@@ -245,6 +246,28 @@ runTest('Rejects non-Monday weekStartDate (e.g. Wednesday 2026-10-07)', () => {
 runTest('Rejects non-7-day week span (e.g. 5 days difference)', () => {
   const valid = validateReportWeekBounds(2026, 41, '2026-10-05', '2026-10-09');
   assert.strictEqual(valid, false);
+});
+
+runTest('getISOWeekNumber correctly derives week and year across Dec/Jan boundaries', () => {
+  const dec29 = getISOWeekNumber(new Date('2025-12-29T12:00:00Z'));
+  assert.strictEqual(dec29.week, 1);
+  assert.strictEqual(dec29.year, 2026); // Dec 29, 2025 is Monday of Week 1, 2026!
+
+  const jan1 = getISOWeekNumber(new Date('2027-01-01T12:00:00Z'));
+  assert.strictEqual(jan1.week, 53);
+  assert.strictEqual(jan1.year, 2026); // Jan 1, 2027 is Friday of Week 53, 2026!
+});
+
+runTest('getWeekDates generates valid ISO bounds across Dec/Jan turn of year', () => {
+  const w1 = getWeekDates(1, 2026);
+  assert.strictEqual(w1.startDate, '2025-12-29');
+  assert.strictEqual(w1.endDate, '2026-01-04');
+  assert.strictEqual(validateReportWeekBounds(2026, 1, w1.startDate, w1.endDate), true);
+
+  const w53 = getWeekDates(53, 2026);
+  assert.strictEqual(w53.startDate, '2026-12-28');
+  assert.strictEqual(w53.endDate, '2027-01-03');
+  assert.strictEqual(validateReportWeekBounds(2026, 53, w53.startDate, w53.endDate), true);
 });
 
 console.log('');

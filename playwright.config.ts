@@ -32,7 +32,7 @@ export default defineConfig({
 
   /* Run local dev server before starting the tests if not already running */
   webServer: {
-    command: 'npm run dev:next',
+    command: 'ENABLE_TEST_HARNESS=true npm run dev:next',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,

@@ -4,37 +4,42 @@
  */
 
 export function getISOWeekNumber(date: Date): { week: number; year: number } {
-  const target = new Date(date.valueOf());
-  const dayNumber = (date.getDay() + 6) % 7;
-  target.setDate(target.getDate() - dayNumber + 3);
-  const firstThursday = target.valueOf();
-  target.setMonth(0, 1);
-  if (target.getDay() !== 4) {
-    target.setMonth(0, 1 + ((4 - target.getDay() + 7) % 7));
-  }
-  const weekNumber = 1 + Math.ceil((firstThursday - target.valueOf()) / 604800000);
-  return { week: weekNumber, year: date.getFullYear() };
+  // ISO 8601 week-year calculation using UTC:
+  // Find Thursday of the current week (target):
+  const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const dayNumber = (target.getUTCDay() + 6) % 7; // Monday = 0, Sunday = 6
+  target.setUTCDate(target.getUTCDate() - dayNumber + 3); // Thursday of this week
+
+  const isoYear = target.getUTCFullYear();
+
+  // First Thursday of the ISO year is always in Week 1:
+  const firstThursday = new Date(Date.UTC(isoYear, 0, 4));
+  const firstThursdayDay = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstThursdayDay + 3);
+
+  // Number of weeks between first Thursday and target Thursday:
+  const weekNumber = 1 + Math.round((target.getTime() - firstThursday.getTime()) / 604800000);
+
+  return { week: weekNumber, year: isoYear };
 }
 
 export function getWeekDates(weekNumber: number, year: number): { startDate: string; endDate: string; label: string } {
-  // Simple calculation for ISO week Monday to Sunday
-  const simple = new Date(year, 0, 1 + (weekNumber - 1) * 7);
-  const dayOfWeek = simple.getDay();
-  const ISOweekStart = new Date(simple);
-  if (dayOfWeek <= 4) {
-    ISOweekStart.setDate(simple.getDate() - simple.getDay() + 1);
-  } else {
-    ISOweekStart.setDate(simple.getDate() + 8 - simple.getDay());
-  }
+  // ISO 8601 week calculation using UTC to avoid timezone drift:
+  // Jan 4th is always guaranteed to be in ISO week 1.
+  const jan4 = new Date(Date.UTC(year, 0, 4));
+  const jan4Day = jan4.getUTCDay() || 7; // Monday = 1, Sunday = 7
+  // Monday of week 1
+  const monWeek1 = new Date(jan4.getTime() - (jan4Day - 1) * 86400000);
+  // Monday of target weekNumber
+  const monTarget = new Date(monWeek1.getTime() + (weekNumber - 1) * 7 * 86400000);
+  // Sunday of target weekNumber
+  const sunTarget = new Date(monTarget.getTime() + 6 * 86400000);
 
-  const ISOweekEnd = new Date(ISOweekStart);
-  ISOweekEnd.setDate(ISOweekStart.getDate() + 6);
+  const startFormatted = monTarget.toISOString().split('T')[0];
+  const endFormatted = sunTarget.toISOString().split('T')[0];
 
-  const startFormatted = ISOweekStart.toISOString().split('T')[0];
-  const endFormatted = ISOweekEnd.toISOString().split('T')[0];
-
-  const startText = ISOweekStart.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
-  const endText = ISOweekEnd.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+  const startText = monTarget.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const endText = sunTarget.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 
   return {
     startDate: startFormatted,

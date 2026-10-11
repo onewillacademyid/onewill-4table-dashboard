@@ -30,7 +30,7 @@ interface AuthContextType {
   closeLoginModal: () => void;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const CURRENT_USER_KEY = 'onewill_demo_current_user_id';
 

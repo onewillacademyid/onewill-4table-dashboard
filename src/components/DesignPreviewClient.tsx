@@ -153,6 +153,7 @@ export function DesignPreviewClient() {
 
       {activeScreen === 'report-editor' && (
         <ReportEditorView
+          isDesignPreview={true}
           reportId={selectedReportId}
           onBack={() => setActiveScreen('reports-list')}
           onSaved={() => setActiveScreen('report-detail')}

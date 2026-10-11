@@ -18,6 +18,7 @@ import { InMemoryReportRepository } from '../src/lib/repos/in-memory-report-repo
 import { FirestoreReportRepository } from '../src/lib/repos/firestore-report-repository';
 import { setCustomSessionVerifierForTesting } from '../src/lib/auth/server-auth';
 import { User, WeeklyReport } from '../src/types';
+import TestEditorHarnessPage from '../src/app/(public)/test-editor-harness/page';
 
 console.log('===========================================================');
 console.log(' ONEWILL ACADEMY — M4.1 PHASE C1 REPORTS API SECURITY TEST ');
@@ -356,6 +357,40 @@ async function main() {
     setReportRepositoryForTesting(mockRepo);
   });
 
+  await runTest('No dependency on Referer for authorization (authorization evaluated strictly by session & origin)', async () => {
+    setupMockSession(contributorUser);
+    const req = createApiRequest('http://localhost:3000/api/reports', {
+      method: 'GET',
+      headers: {
+        referer: 'http://localhost:3000/arbitrary-untrusted-referer',
+      },
+    });
+    const res = await handleGetReports(req);
+    assert.strictEqual(res.status, 200);
+    const json = await res.json();
+    assert.strictEqual(json.success, true);
+  });
+
+  await runTest('POST /api/reports has zero dependency on Referer for authorization (evaluated strictly by session & origin)', async () => {
+    setupMockSession(contributorUser);
+    const customReportInput = {
+      ...sampleValidReportInput,
+      weekNumber: 42,
+    };
+    const req = createApiRequest('http://localhost:3000/api/reports', {
+      method: 'POST',
+      headers: {
+        referer: 'http://localhost:3000/test-editor-harness',
+      },
+      body: customReportInput,
+    });
+    const res = await handlePostReports(req);
+    // Should NOT be blocked by any Referer guard; proceeds to normal processing
+    assert.strictEqual(res.status, 201);
+    const json = await res.json();
+    assert.strictEqual(json.success, true);
+  });
+
   console.log('');
 
   // ==========================================
@@ -481,7 +516,7 @@ async function main() {
     assert.strictEqual(lastEvent.action, 'REPORT_CREATED');
     assert.strictEqual(lastEvent.actorUid, contributorUser.id);
     assert.strictEqual(lastEvent.targetType, 'report');
-    assert.strictEqual(lastEvent.targetId, 'rep_2026_w41_team-operasional');
+    assert.strictEqual(lastEvent.targetId, 'rep_2026_w42_team-operasional');
   });
 
   await runTest('Production isolation safeguard: setCustomSessionVerifierForTesting throws Error in NODE_ENV=production', async () => {
@@ -520,6 +555,69 @@ async function main() {
   // Cleanup testing DI & verifier
   resetReportRepositoryForTesting();
   setCustomSessionVerifierForTesting(null);
+
+  console.log('');
+
+  // ==========================================
+  // [SECTION 6] TEST HARNESS ISOLATION & GATEKEEPER SECURITY
+  // ==========================================
+  console.log('[SECTION 6] Test Harness Isolation & Gatekeeper Security:');
+
+  await runTest('Test harness returns 404 in production (calls notFound() when NODE_ENV=production)', async () => {
+    const originalEnv = process.env.NODE_ENV;
+    const originalFlag = process.env.ENABLE_TEST_HARNESS;
+    try {
+      (process.env as any).NODE_ENV = 'production';
+      process.env.ENABLE_TEST_HARNESS = 'true';
+      let threw404 = false;
+      try {
+        TestEditorHarnessPage();
+      } catch (err: any) {
+        if (err?.message?.includes('NEXT_HTTP_ERROR_FALLBACK;404') || err?.digest?.includes('404')) {
+          threw404 = true;
+        }
+      }
+      assert.strictEqual(threw404, true, 'TestEditorHarnessPage must throw notFound() in production');
+    } finally {
+      (process.env as any).NODE_ENV = originalEnv;
+      process.env.ENABLE_TEST_HARNESS = originalFlag;
+    }
+  });
+
+  await runTest('Test harness returns 404 when not explicitly enabled (NODE_ENV=development, ENABLE_TEST_HARNESS unset)', async () => {
+    const originalEnv = process.env.NODE_ENV;
+    const originalFlag = process.env.ENABLE_TEST_HARNESS;
+    try {
+      (process.env as any).NODE_ENV = 'development';
+      delete process.env.ENABLE_TEST_HARNESS;
+      let threw404 = false;
+      try {
+        TestEditorHarnessPage();
+      } catch (err: any) {
+        if (err?.message?.includes('NEXT_HTTP_ERROR_FALLBACK;404') || err?.digest?.includes('404')) {
+          threw404 = true;
+        }
+      }
+      assert.strictEqual(threw404, true, 'TestEditorHarnessPage must throw notFound() when ENABLE_TEST_HARNESS is unset');
+    } finally {
+      (process.env as any).NODE_ENV = originalEnv;
+      process.env.ENABLE_TEST_HARNESS = originalFlag;
+    }
+  });
+
+  await runTest('Test harness renders securely in development with ENABLE_TEST_HARNESS=true', async () => {
+    const originalEnv = process.env.NODE_ENV;
+    const originalFlag = process.env.ENABLE_TEST_HARNESS;
+    try {
+      (process.env as any).NODE_ENV = 'development';
+      process.env.ENABLE_TEST_HARNESS = 'true';
+      const element = TestEditorHarnessPage();
+      assert.ok(element !== null && typeof element === 'object', 'Test harness should render in dev with flag enabled');
+    } finally {
+      (process.env as any).NODE_ENV = originalEnv;
+      process.env.ENABLE_TEST_HARNESS = originalFlag;
+    }
+  });
 
   console.log('');
   console.log('===========================================================');
