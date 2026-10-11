@@ -35,16 +35,18 @@ import { getWeekDates, formatDateTimeIndonesian } from '../utils/dateUtils';
 import { useAuth } from '../context/AuthContext';
 import { canReadReport, canViewDashboardOrgWide } from '@/lib/auth/rbac-policy';
 
-interface DashboardViewProps {
+export interface DashboardViewProps {
   onOpenReport: (reportId: string) => void;
   onNewReport: () => void;
   onNavigateToReviews: () => void;
+  isDesignPreview?: boolean;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenReport,
   onNewReport,
   onNavigateToReviews,
+  isDesignPreview = false,
 }) => {
   const { currentUser, isSessionLoading } = useAuth();
   const isOrgWideAccess = currentUser ? canViewDashboardOrgWide(currentUser.role) : false;
@@ -82,24 +84,61 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const loadDashboardData = async () => {
     if (!currentUser) return;
     setIsLoading(true);
+
+    if (isDesignPreview) {
+      try {
+        const activeTeamFilter = !isOrgWideAccess ? currentUser.teamId : (selectedTeam !== 'ALL' ? selectedTeam : undefined);
+        const dataMetrics = await reportRepository.getMetrics(selectedWeek, selectedYear, activeTeamFilter);
+        setMetrics(dataMetrics);
+
+        const all = await reportRepository.listReports();
+        const readableAll = all.filter((r) => canReadReport(currentUser, r).allowed);
+        setAllReports(readableAll);
+
+        const reports = await reportRepository.listReports({
+          weekNumber: selectedWeek,
+          year: selectedYear,
+          teamId: activeTeamFilter,
+        });
+        const readableRecent = reports.filter((r) => canReadReport(currentUser, r).allowed);
+        setRecentReports(readableRecent);
+      } catch (err) {
+        console.error('Failed to load dashboard demo data:', err);
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    // Authenticated Live Mode: Do NOT fabricate or compute synthetic localStorage metrics
     try {
+      setMetrics(null);
+      const query = new URLSearchParams();
       const activeTeamFilter = !isOrgWideAccess ? currentUser.teamId : (selectedTeam !== 'ALL' ? selectedTeam : undefined);
-      const dataMetrics = await reportRepository.getMetrics(selectedWeek, selectedYear, activeTeamFilter);
-      setMetrics(dataMetrics);
+      if (activeTeamFilter) {
+        query.set('teamId', activeTeamFilter);
+      }
+      query.set('limit', '20');
 
-      const all = await reportRepository.listReports();
-      const readableAll = all.filter((r) => canReadReport(currentUser, r).allowed);
-      setAllReports(readableAll);
-
-      const reports = await reportRepository.listReports({
-        weekNumber: selectedWeek,
-        year: selectedYear,
-        teamId: activeTeamFilter,
+      const res = await fetch(`/api/reports?${query.toString()}`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        credentials: 'same-origin',
       });
-      const readableRecent = reports.filter((r) => canReadReport(currentUser, r).allowed);
-      setRecentReports(readableRecent);
+
+      const body = await res.json();
+      if (res.ok && body.success) {
+        const fetchedReports: WeeklyReport[] = body.data?.reports || [];
+        setAllReports(fetchedReports);
+        setRecentReports(fetchedReports);
+      } else {
+        setAllReports([]);
+        setRecentReports([]);
+      }
     } catch (err) {
-      console.error('Failed to load dashboard data:', err);
+      console.error('Failed to load live reports in DashboardView:', err);
+      setAllReports([]);
+      setRecentReports([]);
     } finally {
       setIsLoading(false);
     }
@@ -304,7 +343,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div className="flex items-baseline justify-between">
                 <span className="text-xs font-semibold text-amber-900">Laporan diajukan</span>
                 <span className="text-2xl font-bold tabular-nums text-amber-900">
-                  {metrics?.pendingReviewsCount || 0}
+                  {isDesignPreview ? (metrics?.pendingReviewsCount || 0) : '—'}
                 </span>
               </div>
               <p className="text-xs text-amber-800/90 leading-relaxed">
@@ -319,7 +358,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
               <div className="flex items-center justify-between text-[11px] py-1 border-b border-slate-100">
                 <span className="text-slate-500">Dukungan tertunda</span>
-                <span className="font-semibold text-slate-800">{metrics?.outstandingSupportCount || 0} permohonan</span>
+                <span className="font-semibold text-slate-800">
+                  {isDesignPreview ? `${metrics?.outstandingSupportCount || 0} permohonan` : 'Menunggu M4.2'}
+                </span>
               </div>
             </div>
           </div>
@@ -347,51 +388,70 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* 3. Responsive KPI Cards Grid (1 column on mobile, 2 sm, 4 lg) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard
-          label="Laporan diterima"
-          value={
-            metrics
-              ? `${metrics.totalReceivedReports} / ${metrics.totalExpectedReports}`
-              : '-'
-          }
-          subtext={
-            metrics
-              ? `Tingkat kepatuhan pelaporan: ${metrics.submissionRatePercent}%`
-              : 'Memuat data...'
-          }
-          icon={BarChart3}
-          variant="accent"
-          onClick={() => setStatusFilter(statusFilter === 'SUBMITTED' ? 'ALL' : 'SUBMITTED')}
-        />
+      {!isDesignPreview ? (
+        <div className="bg-amber-50/70 border border-amber-200/90 rounded-2xl p-4 sm:p-5 text-amber-900 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+              <BarChart3 className="w-5 h-5 text-amber-700" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-amber-950">Metrik laporan live sedang disiapkan</h3>
+              <p className="text-xs text-amber-800 mt-0.5">
+                Agregasi metrik Firestore tingkat organisasi sedang diintegrasikan pada Fase M4.2. Tidak ada metrik sintetis yang difabrikasi sebagai data nyata.
+              </p>
+            </div>
+          </div>
+          <span className="text-[11px] font-semibold text-amber-800 bg-amber-100/90 px-3 py-1.5 rounded-lg border border-amber-300/60 shrink-0">
+            Fase M4.2 Pipeline
+          </span>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <MetricCard
+            label="Laporan diterima"
+            value={
+              metrics
+                ? `${metrics.totalReceivedReports} / ${metrics.totalExpectedReports}`
+                : '-'
+            }
+            subtext={
+              metrics
+                ? `Tingkat kepatuhan pelaporan: ${metrics.submissionRatePercent}%`
+                : 'Memuat data...'
+            }
+            icon={BarChart3}
+            variant="accent"
+            onClick={() => setStatusFilter(statusFilter === 'SUBMITTED' ? 'ALL' : 'SUBMITTED')}
+          />
 
-        <MetricCard
-          label="Menunggu tinjauan"
-          value={metrics ? metrics.pendingReviewsCount : '-'}
-          subtext="Memerlukan verifikasi dan persetujuan atasan"
-          icon={Clock}
-          variant={metrics && metrics.pendingReviewsCount > 0 ? 'warning' : 'default'}
-          onClick={onNavigateToReviews}
-        />
+          <MetricCard
+            label="Menunggu tinjauan"
+            value={metrics ? metrics.pendingReviewsCount : '-'}
+            subtext="Memerlukan verifikasi dan persetujuan atasan"
+            icon={Clock}
+            variant={metrics && metrics.pendingReviewsCount > 0 ? 'warning' : 'default'}
+            onClick={onNavigateToReviews}
+          />
 
-        <MetricCard
-          label="Kendala kritis aktif"
-          value={metrics ? metrics.criticalIssuesCount : '-'}
-          subtext={metrics ? `Total kendala terdata: ${metrics.totalIssuesCount}` : ''}
-          icon={Flame}
-          variant={metrics && metrics.criticalIssuesCount > 0 ? 'danger' : 'default'}
-          onClick={() => setDrilldownType('CRITICAL_ISSUES')}
-        />
+          <MetricCard
+            label="Kendala kritis aktif"
+            value={metrics ? metrics.criticalIssuesCount : '-'}
+            subtext={metrics ? `Total kendala terdata: ${metrics.totalIssuesCount}` : ''}
+            icon={Flame}
+            variant={metrics && metrics.criticalIssuesCount > 0 ? 'danger' : 'default'}
+            onClick={() => setDrilldownType('CRITICAL_ISSUES')}
+          />
 
-        <MetricCard
-          label="Dukungan tertunda"
-          value={metrics ? metrics.outstandingSupportCount : '-'}
-          subtext="Eskalasi permohonan bantuan antar divisi"
-          icon={HelpCircle}
-          variant="default"
-          onClick={() => setDrilldownType('SUPPORT_REQUESTS')}
-        />
-      </div>
+          <MetricCard
+            label="Dukungan tertunda"
+            value={metrics ? metrics.outstandingSupportCount : '-'}
+            subtext="Eskalasi permohonan bantuan antar divisi"
+            icon={HelpCircle}
+            variant="default"
+            onClick={() => setDrilldownType('SUPPORT_REQUESTS')}
+          />
+        </div>
+      )}
 
       {/* 4. Question 5 - Who is responsible for the next action? (Reports Table & Mobile Cards) */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden">

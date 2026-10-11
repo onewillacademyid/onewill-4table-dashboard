@@ -113,6 +113,7 @@ export function DesignPreviewClient() {
     <>
       {activeScreen === 'dashboard' && (
         <DashboardView
+          isDesignPreview={true}
           onOpenReport={(id) => { setSelectedReportId(id); setActiveScreen('report-detail'); }}
           onNewReport={() => setActiveScreen('report-editor')}
           onNavigateToReviews={() => setActiveScreen('reviews-queue')}
@@ -135,6 +136,7 @@ export function DesignPreviewClient() {
 
       {activeScreen === 'reports-list' && (
         <ReportsListView
+          isDesignPreview={true}
           onOpenReport={(id) => { setSelectedReportId(id); setActiveScreen('report-detail'); }}
           onNewReport={() => setActiveScreen('report-editor')}
         />
@@ -142,6 +144,7 @@ export function DesignPreviewClient() {
 
       {activeScreen === 'report-detail' && (
         <ReportDetailView
+          isDesignPreview={true}
           reportId={selectedReportId}
           onBack={() => setActiveScreen('reports-list')}
           onEdit={() => setActiveScreen('report-editor')}

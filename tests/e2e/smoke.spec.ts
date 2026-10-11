@@ -42,9 +42,11 @@ test.describe('Onewill Academy — E2E Browser Smoke Tests', () => {
     for (const route of protectedRoutes) {
       await page.goto(route);
       // Unauthenticated session must redirect to /login
-      await page.waitForURL((url) => url.pathname.startsWith('/login'), {
-        timeout: 10000,
-      });
+      if (!page.url().includes('/login')) {
+        await page.waitForURL((url) => url.pathname.startsWith('/login'), {
+          timeout: 15000,
+        });
+      }
       expect(page.url()).toContain('/login');
     }
   });

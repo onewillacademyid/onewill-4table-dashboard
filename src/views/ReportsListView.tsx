@@ -18,7 +18,10 @@ import {
   ChevronRight, 
   FileText, 
   RotateCcw,
-  UserCheck
+  UserCheck,
+  Loader2,
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
 import { WeeklyReport, ReportStatus } from '../types';
 import { reportRepository, DEMO_TEAMS } from '../services/reportRepository';
@@ -27,18 +30,24 @@ import { formatDateTimeIndonesian } from '../utils/dateUtils';
 import { useAuth } from '../context/AuthContext';
 import { canReadReport } from '@/lib/auth/rbac-policy';
 
-interface ReportsListViewProps {
+export interface ReportsListViewProps {
   onOpenReport: (reportId: string) => void;
   onNewReport: () => void;
+  isDesignPreview?: boolean;
 }
 
 export const ReportsListView: React.FC<ReportsListViewProps> = ({
   onOpenReport,
   onNewReport,
+  isDesignPreview = false,
 }) => {
   const { currentUser, isSessionLoading } = useAuth();
   const [reports, setReports] = useState<WeeklyReport[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -60,23 +69,111 @@ export const ReportsListView: React.FC<ReportsListViewProps> = ({
     }
   }, [selectedStatus, selectedTeam, filterMyReportsOnly, currentUser]);
 
-  const loadReports = async () => {
+  const loadReports = async (cursorToFetch?: string) => {
     if (!currentUser) return;
-    setIsLoading(true);
+
+    if (cursorToFetch) {
+      setIsLoadingMore(true);
+    } else {
+      setIsLoading(true);
+      setError(null);
+      setErrorCode(null);
+    }
+
+    if (isDesignPreview) {
+      try {
+        const activeTeam = currentUser.role === 'CONTRIBUTOR' ? currentUser.teamId : (selectedTeam !== 'ALL' ? selectedTeam : undefined);
+        const data = await reportRepository.listReports({
+          status: selectedStatus as any,
+          teamId: activeTeam,
+          authorId: filterMyReportsOnly ? currentUser.id : undefined,
+          searchQuery: searchQuery.trim() || undefined,
+        });
+        const allowedData = data.filter((r) => canReadReport(currentUser, r).allowed);
+        setReports(allowedData);
+        setNextCursor(null);
+      } catch (err: any) {
+        console.error(err);
+        setError(err.message || 'Gagal memuat data demo.');
+      } finally {
+        setIsLoading(false);
+        setIsLoadingMore(false);
+      }
+      return;
+    }
+
+    // Live API Mode (GET /api/reports)
     try {
-      const activeTeam = currentUser.role === 'CONTRIBUTOR' ? currentUser.teamId : (selectedTeam !== 'ALL' ? selectedTeam : undefined);
-      const data = await reportRepository.listReports({
-        status: selectedStatus as any,
-        teamId: activeTeam,
-        authorId: filterMyReportsOnly ? currentUser.id : undefined,
-        searchQuery: searchQuery.trim() || undefined,
+      const query = new URLSearchParams();
+      if (selectedStatus !== 'ALL') {
+        query.set('status', selectedStatus);
+      }
+      if (selectedTeam !== 'ALL') {
+        query.set('teamId', selectedTeam);
+      }
+      if (cursorToFetch) {
+        query.set('cursor', cursorToFetch);
+      }
+      query.set('limit', '20');
+
+      const res = await fetch(`/api/reports?${query.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+        credentials: 'same-origin',
       });
-      const allowedData = data.filter((r) => canReadReport(currentUser, r).allowed);
-      setReports(allowedData);
-    } catch (err) {
-      console.error(err);
+
+      const body = await res.json();
+
+      if (!res.ok || !body.success) {
+        setError(body.error || 'Terjadi kesalahan saat memuat data laporan dari server.');
+        setErrorCode(body.code || `HTTP_${res.status}`);
+        if (!cursorToFetch) {
+          setReports([]);
+        }
+        return;
+      }
+
+      let fetchedReports: WeeklyReport[] = body.data?.reports || [];
+
+      if (filterMyReportsOnly) {
+        fetchedReports = fetchedReports.filter(r => r.authorId === currentUser.id);
+      }
+
+      if (searchQuery.trim()) {
+        const q = searchQuery.trim().toLowerCase();
+        fetchedReports = fetchedReports.filter(
+          r =>
+            r.title.toLowerCase().includes(q) ||
+            r.authorName.toLowerCase().includes(q) ||
+            r.teamName.toLowerCase().includes(q)
+        );
+      }
+
+      if (cursorToFetch) {
+        setReports(prev => {
+          const existingIds = new Set(prev.map(p => p.id));
+          const uniqueNew = fetchedReports.filter(r => !existingIds.has(r.id));
+          return [...prev, ...uniqueNew];
+        });
+      } else {
+        setReports(fetchedReports);
+      }
+
+      setNextCursor(body.data?.nextCursor || null);
+      setError(null);
+      setErrorCode(null);
+    } catch (err: any) {
+      console.error('API Fetch Error in ReportsListView:', err);
+      setError(err.message || 'Gagal terhubung ke server laporan. Periksa koneksi jaringan Anda.');
+      setErrorCode('NETWORK_ERROR');
+      if (!cursorToFetch) {
+        setReports([]);
+      }
     } finally {
       setIsLoading(false);
+      setIsLoadingMore(false);
     }
   };
 
@@ -197,6 +294,27 @@ export const ReportsListView: React.FC<ReportsListViewProps> = ({
         </div>
       </div>
 
+      {/* Error Alert Banner */}
+      {error && (
+        <div className="bg-rose-50 border border-rose-200/90 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-rose-800">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+            <div>
+              <span className="font-bold">Gagal memuat daftar laporan: </span>
+              <span>{error}</span>
+              {errorCode && <span className="text-[11px] text-rose-600 ml-1 font-mono">({errorCode})</span>}
+            </div>
+          </div>
+          <button
+            onClick={() => loadReports()}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-rose-900 bg-rose-100 hover:bg-rose-200 rounded-xl transition-colors cursor-pointer shrink-0 min-h-[44px]"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Coba Lagi</span>
+          </button>
+        </div>
+      )}
+
       {/* Reports Table / Card Container */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden">
         <div className="px-5 py-3.5 border-b border-slate-200/80 bg-slate-50/50 flex items-center justify-between text-xs">
@@ -211,7 +329,10 @@ export const ReportsListView: React.FC<ReportsListViewProps> = ({
         {/* Desktop Table View */}
         <div className="hidden md:block overflow-x-auto">
           {isLoading ? (
-            <div className="p-8 text-center text-xs text-slate-500">Memuat data laporan...</div>
+            <div className="p-8 text-center text-xs text-slate-500 flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin text-[#6C2AA6]" />
+              <span>Memuat data laporan...</span>
+            </div>
           ) : reports.length === 0 ? (
             <div className="py-12 text-center text-slate-400 text-xs">
               <FileText className="w-8 h-8 mx-auto mb-2 opacity-30 text-slate-600" />
@@ -310,7 +431,10 @@ export const ReportsListView: React.FC<ReportsListViewProps> = ({
         {/* Mobile Record Cards View */}
         <div className="block md:hidden divide-y divide-slate-100">
           {isLoading ? (
-            <div className="p-6 text-center text-xs text-slate-500">Memuat data laporan...</div>
+            <div className="p-6 text-center text-xs text-slate-500 flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin text-[#6C2AA6]" />
+              <span>Memuat data laporan...</span>
+            </div>
           ) : reports.length === 0 ? (
             <div className="p-8 text-center text-slate-400 text-xs">
               <FileText className="w-8 h-8 mx-auto mb-2 opacity-30 text-slate-600" />
@@ -373,6 +497,26 @@ export const ReportsListView: React.FC<ReportsListViewProps> = ({
             })
           )}
         </div>
+
+        {/* Server Cursor Pagination Controls */}
+        {nextCursor && !isLoading && !error && (
+          <div className="p-4 border-t border-slate-200/80 bg-slate-50/50 flex justify-center">
+            <button
+              onClick={() => loadReports(nextCursor)}
+              disabled={isLoadingMore}
+              className="inline-flex items-center justify-center gap-2 min-h-[44px] px-5 py-2 text-xs font-semibold text-[#6C2AA6] bg-[#F4EFFA] hover:bg-[#ebdcf9] rounded-xl transition-colors cursor-pointer border border-[#6C2AA6]/20 shadow-2xs"
+            >
+              {isLoadingMore ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-[#6C2AA6]" />
+                  <span>Memuat laporan berikutnya...</span>
+                </>
+              ) : (
+                <span>Muat Lebih Banyak Laporan</span>
+              )}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -29,15 +29,20 @@ if (typeof window !== 'undefined') {
 
 function getCursorSecret(): string {
   const dedicatedSecret = process.env.PAGINATION_CURSOR_SECRET;
-  if (dedicatedSecret) {
+  if (dedicatedSecret && dedicatedSecret.trim().length > 0) {
     return crypto.createHash('sha256').update(`onewill-cursor-key-${dedicatedSecret}`).digest('hex');
   }
 
-  if (process.env.NODE_ENV === 'test') {
+  // Test suite execution detection
+  if (
+    process.env.NODE_ENV === 'test' ||
+    process.env.npm_lifecycle_event === 'test' ||
+    process.argv.some((a) => a.includes('scripts/test-') || a.includes('playwright'))
+  ) {
     return crypto.createHash('sha256').update('onewill-academy-test-pagination-secret-32bytes').digest('hex');
   }
 
-  return crypto.createHash('sha256').update('onewill-academy-weekly-report-app-secret-salt').digest('hex');
+  throw new Error('CRITICAL CONFIGURATION ERROR: PAGINATION_CURSOR_SECRET is required on the server for secure cursor signing.');
 }
 
 export interface StreamPosition {
@@ -166,7 +171,10 @@ export function verifyAndDecodeCursor(
     }
 
     return { valid: true, payload };
-  } catch {
+  } catch (err: any) {
+    if (err?.message?.includes('PAGINATION_CURSOR_SECRET')) {
+      throw err;
+    }
     return { valid: false, error: 'Format token cursor pagination tidak dapat diurai.' };
   }
 }

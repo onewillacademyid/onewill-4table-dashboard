@@ -35,20 +35,24 @@ import { formatDateTimeIndonesian } from '../utils/dateUtils';
 import { useAuth } from '../context/AuthContext';
 import { canReadReport } from '@/lib/auth/rbac-policy';
 
-interface ReportDetailViewProps {
+export interface ReportDetailViewProps {
   reportId: string;
   onBack: () => void;
   onEdit: (reportId: string) => void;
+  isDesignPreview?: boolean;
 }
 
 export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
   reportId,
   onBack,
   onEdit,
+  isDesignPreview = false,
 }) => {
   const { currentUser, canApprove, canEdit, canArchive } = useAuth();
   const [report, setReport] = useState<WeeklyReport | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
 
   // Review dialog state
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
@@ -67,11 +71,57 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
 
   const loadReport = async () => {
     setLoading(true);
+    setError(null);
+    setErrorCode(null);
+
+    if (isDesignPreview) {
+      try {
+        const data = await reportRepository.getReportById(reportId);
+        setReport(data);
+      } catch (err: any) {
+        console.error(err);
+        setError(err.message || 'Laporan tidak ditemukan.');
+        setErrorCode('REPORT_NOT_FOUND');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Live API Mode (GET /api/reports/[id])
     try {
-      const data = await reportRepository.getReportById(reportId);
-      setReport(data);
-    } catch (err) {
-      console.error(err);
+      const res = await fetch(`/api/reports/${reportId}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+        credentials: 'same-origin',
+      });
+
+      const body = await res.json();
+
+      if (!res.ok || !body.success) {
+        setError(body.error || 'Gagal mengambil rincian laporan.');
+        setErrorCode(
+          body.code ||
+          (res.status === 401
+            ? 'UNAUTHENTICATED'
+            : res.status === 403
+            ? 'CROSS_TEAM_FORBIDDEN'
+            : res.status === 404
+            ? 'REPORT_NOT_FOUND'
+            : `HTTP_${res.status}`)
+        );
+        setReport(null);
+        return;
+      }
+
+      setReport(body.data || null);
+    } catch (err: any) {
+      console.error('API Fetch Error in ReportDetailView:', err);
+      setError('Gagal terhubung ke server. Periksa koneksi jaringan Anda.');
+      setErrorCode('NETWORK_ERROR');
+      setReport(null);
     } finally {
       setLoading(false);
     }
@@ -90,22 +140,46 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
     );
   }
 
-  if (report && !readPermission.allowed) {
+  if (error || (report && !readPermission.allowed)) {
+    const is401 = errorCode === 'UNAUTHENTICATED';
+    const is403 = errorCode === 'CROSS_TEAM_FORBIDDEN' || (report && !readPermission.allowed);
+    const is404 = errorCode === 'REPORT_NOT_FOUND';
+
     return (
-      <div className="max-w-xl mx-auto my-12 p-8 bg-white border border-rose-200 rounded-3xl text-center space-y-4 shadow-sm">
-        <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center mx-auto">
+      <div className="max-w-xl mx-auto my-12 p-8 bg-white border border-slate-200 rounded-3xl text-center space-y-4 shadow-xs">
+        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mx-auto ${
+          is403 || is401 ? 'bg-rose-100 text-rose-600' : is404 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'
+        }`}>
           <AlertOctagon className="w-6 h-6" />
         </div>
-        <h2 className="text-lg font-bold text-slate-900">Akses Ditolak</h2>
+        <h2 className="text-lg font-bold text-slate-900">
+          {is401
+            ? 'Sesi Berakhir'
+            : is403
+            ? 'Akses Ditolak'
+            : is404
+            ? 'Laporan Tidak Ditemukan'
+            : 'Gagal Memuat Laporan'}
+        </h2>
         <p className="text-xs text-slate-600 leading-relaxed">
-          {readPermission.reason || 'Anda tidak memiliki hak akses untuk membaca laporan dari divisi ini.'}
+          {error || (readPermission.reason || 'Anda tidak memiliki hak akses untuk membaca laporan dari divisi ini.')}
         </p>
-        <button
-          onClick={onBack}
-          className="px-4 py-2.5 bg-[#35115A] text-white text-xs font-bold rounded-xl hover:bg-[#6C2AA6] transition-colors cursor-pointer"
-        >
-          Kembali ke Daftar Laporan
-        </button>
+        <div className="flex justify-center gap-2 pt-2">
+          <button
+            onClick={onBack}
+            className="px-4 py-2.5 bg-[#35115A] text-white text-xs font-bold rounded-xl hover:bg-[#6C2AA6] transition-colors cursor-pointer"
+          >
+            Kembali ke Daftar Laporan
+          </button>
+          {!is401 && !is403 && !is404 && (
+            <button
+              onClick={() => loadReport()}
+              className="px-4 py-2.5 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl hover:bg-slate-200 transition-colors cursor-pointer"
+            >
+              Coba Lagi
+            </button>
+          )}
+        </div>
       </div>
     );
   }
