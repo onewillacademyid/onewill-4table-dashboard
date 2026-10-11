@@ -28,7 +28,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { WeeklyReport, DashboardMetrics } from '../types';
-import { reportRepository, DEMO_TEAMS } from '../services/reportRepository';
+import { reportRepository, DEMO_TEAMS, DEMO_USERS } from '../services/reportRepository';
 import { MetricCard } from '../components/MetricCard';
 import { StatusBadge } from '../components/StatusBadge';
 import { getWeekDates, formatDateTimeIndonesian } from '../utils/dateUtils';
@@ -48,7 +48,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigateToReviews,
   isDesignPreview = false,
 }) => {
-  const { currentUser, isSessionLoading } = useAuth();
+  const { currentUser: authUser, isSessionLoading } = useAuth();
+  const currentUser = isDesignPreview ? (authUser || DEMO_USERS[0]) : authUser;
   const isOrgWideAccess = currentUser ? canViewDashboardOrgWide(currentUser.role) : false;
 
   const [selectedWeek, setSelectedWeek] = useState(41);
@@ -144,15 +145,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }
   };
 
-  if (isSessionLoading || !currentUser) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] py-16 text-slate-500 space-y-3">
-        <Loader2 className="w-8 h-8 text-[#6C2AA6] animate-spin" />
-        <p className="text-xs font-semibold text-slate-600">Memuat sesi otentikasi dasbor...</p>
-      </div>
-    );
-  }
-
   // Collect distinct weeks for selector
   const availableWeeks = React.useMemo(() => {
     const weekSet = new Set<number>([39, 40, 41]);
@@ -164,7 +156,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const criticalAndHighIssues = React.useMemo(() => {
     const list: Array<{ report: WeeklyReport; issue: any }> = [];
     recentReports.forEach((r) => {
-      if (!r.sections.issues.noUpdates) {
+      if (!r.sections?.issues?.noUpdates && Array.isArray(r.sections?.issues?.items)) {
         r.sections.issues.items.forEach((iss) => {
           if (iss.severity === 'critical' || iss.severity === 'high') {
             list.push({ report: r, issue: iss });
@@ -179,7 +171,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const pendingSupportRequests = React.useMemo(() => {
     const list: Array<{ report: WeeklyReport; support: any }> = [];
     recentReports.forEach((r) => {
-      if (!r.sections.support.noUpdates) {
+      if (!r.sections?.support?.noUpdates && Array.isArray(r.sections?.support?.items)) {
         r.sections.support.items.forEach((sup) => {
           if (sup.status === 'pending') {
             list.push({ report: r, support: sup });
@@ -194,6 +186,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     if (statusFilter === 'ALL') return true;
     return r.status === statusFilter;
   });
+
+  if (!isDesignPreview && (isSessionLoading || !currentUser)) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] py-16 text-slate-500 space-y-3">
+        <Loader2 className="w-8 h-8 text-[#6C2AA6] animate-spin" />
+        <p className="text-xs font-semibold text-slate-600">Memuat sesi otentikasi dasbor...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 text-slate-900 font-sans">
@@ -280,19 +281,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           {criticalAndHighIssues.length === 0 ? (
-            <div className="p-6 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
-              <CheckCircle className="w-8 h-8 text-emerald-500 mx-auto mb-2 opacity-80" />
-              <p className="text-xs font-semibold text-slate-800">
-                {recentReports.length === 0 && !isDesignPreview
-                  ? 'Belum ada data laporan pekan ini'
-                  : 'Tidak ada kendala kritis pekan ini'}
-              </p>
-              <p className="text-[11px] text-slate-500 mt-0.5">
-                {recentReports.length === 0 && !isDesignPreview
-                  ? 'Kendala dan mitigasi akan terdata otomatis setelah laporan draf diajukan.'
-                  : 'Semua divisi berjalan sesuai target tanpa adanya eskalasi darurat.'}
-              </p>
-            </div>
+            isDesignPreview ? (
+              <div className="p-6 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                <CheckCircle className="w-8 h-8 text-emerald-500 mx-auto mb-2 opacity-80" />
+                <p className="text-xs font-semibold text-slate-800">Tidak ada kendala kritis pekan ini</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">Semua divisi berjalan sesuai target tanpa adanya eskalasi darurat.</p>
+              </div>
+            ) : (
+              <div className="p-6 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-2">
+                  <Clock className="w-4 h-4" />
+                </div>
+                <p className="text-xs font-semibold text-slate-700">Metrik kendala kritis sedang disiapkan</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {recentReports.length === 0
+                    ? 'Belum ada laporan yang diajukan untuk periode pekan ini.'
+                    : 'Agregasi kendala tingkat organisasi akan aktif pada integrasi metrik M4.2.'}
+                </p>
+              </div>
+            )
           ) : (
             <div className="space-y-3">
               {criticalAndHighIssues.slice(0, 3).map(({ report, issue }, idx) => (
