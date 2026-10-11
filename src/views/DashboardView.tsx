@@ -282,8 +282,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {criticalAndHighIssues.length === 0 ? (
             <div className="p-6 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
               <CheckCircle className="w-8 h-8 text-emerald-500 mx-auto mb-2 opacity-80" />
-              <p className="text-xs font-semibold text-slate-800">Tidak ada kendala kritis pekan ini</p>
-              <p className="text-[11px] text-slate-500 mt-0.5">Semua divisi berjalan sesuai target tanpa adanya eskalasi darurat.</p>
+              <p className="text-xs font-semibold text-slate-800">
+                {recentReports.length === 0 && !isDesignPreview
+                  ? 'Belum ada data laporan pekan ini'
+                  : 'Tidak ada kendala kritis pekan ini'}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                {recentReports.length === 0 && !isDesignPreview
+                  ? 'Kendala dan mitigasi akan terdata otomatis setelah laporan draf diajukan.'
+                  : 'Semua divisi berjalan sesuai target tanpa adanya eskalasi darurat.'}
+              </p>
             </div>
           ) : (
             <div className="space-y-3">

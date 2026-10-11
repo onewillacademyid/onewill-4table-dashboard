@@ -319,10 +319,10 @@ export const ReportsListView: React.FC<ReportsListViewProps> = ({
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden">
         <div className="px-5 py-3.5 border-b border-slate-200/80 bg-slate-50/50 flex items-center justify-between text-xs">
           <span className="font-semibold text-slate-700">
-            Ditemukan {reports.length} laporan
+            {error ? 'Status data laporan' : `Ditemukan ${reports.length} laporan`}
           </span>
           <span className="text-slate-500 text-[11px]">
-            Diurutkan pembaruan terbaru
+            {error ? 'Terjadi kesalahan sinkronisasi' : 'Diurutkan pembaruan terbaru'}
           </span>
         </div>
 
@@ -332,6 +332,18 @@ export const ReportsListView: React.FC<ReportsListViewProps> = ({
             <div className="p-8 text-center text-xs text-slate-500 flex items-center justify-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin text-[#6C2AA6]" />
               <span>Memuat data laporan...</span>
+            </div>
+          ) : error ? (
+            <div className="py-12 text-center text-rose-500 text-xs space-y-2">
+              <AlertCircle className="w-8 h-8 mx-auto opacity-70 text-rose-600" />
+              <p className="font-bold text-slate-800">Gagal memuat data laporan dari server</p>
+              <p className="text-slate-500 text-[11px] max-w-md mx-auto">{error}</p>
+              <button
+                onClick={() => loadReports()}
+                className="mt-2 px-3 py-1.5 text-xs font-semibold text-rose-900 bg-rose-100 hover:bg-rose-200 rounded-lg cursor-pointer transition-colors"
+              >
+                Muat Ulang
+              </button>
             </div>
           ) : reports.length === 0 ? (
             <div className="py-12 text-center text-slate-400 text-xs">
@@ -434,6 +446,18 @@ export const ReportsListView: React.FC<ReportsListViewProps> = ({
             <div className="p-6 text-center text-xs text-slate-500 flex items-center justify-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin text-[#6C2AA6]" />
               <span>Memuat data laporan...</span>
+            </div>
+          ) : error ? (
+            <div className="p-8 text-center text-rose-500 text-xs space-y-2">
+              <AlertCircle className="w-8 h-8 mx-auto opacity-70 text-rose-600" />
+              <p className="font-bold text-slate-800">Gagal memuat data laporan</p>
+              <p className="text-slate-500 text-[11px]">{error}</p>
+              <button
+                onClick={() => loadReports()}
+                className="mt-2 px-3 py-1.5 text-xs font-semibold text-rose-900 bg-rose-100 hover:bg-rose-200 rounded-lg cursor-pointer transition-colors"
+              >
+                Muat Ulang
+              </button>
             </div>
           ) : reports.length === 0 ? (
             <div className="p-8 text-center text-slate-400 text-xs">
