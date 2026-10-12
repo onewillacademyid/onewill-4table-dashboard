@@ -35,6 +35,7 @@ import { reportRepository, DEMO_TEAMS } from '../services/reportRepository';
 import { FourTableGrid } from '../components/FourTableGrid';
 import { StatusBadge } from '../components/StatusBadge';
 import { getWeekDates, getISOWeekNumber } from '../utils/dateUtils';
+import { getCanonicalTeamName } from '@/lib/firebase/auth-foundation';
 import { useAuth } from '../context/AuthContext';
 import {
   CreateReportInputSchema,
@@ -139,17 +140,43 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
   apiEndpoint,
 }) => {
   const { currentUser, isSessionLoading } = useAuth();
-  const currentWeekInfo = getISOWeekNumber(new Date('2026-10-08'));
+
+  // Dynamic ISO week calculation based on system clock (evaluates to W42 in 2026)
+  const currentWeekInfo = useMemo(() => {
+    return getISOWeekNumber(new Date());
+  }, []);
 
   const [loading, setLoading] = useState(true);
   const [report, setReport] = useState<WeeklyReport | null>(null);
 
   // Form Fields
   const [title, setTitle] = useState('');
+  const [isTitleManuallyEdited, setIsTitleManuallyEdited] = useState(false);
   const [teamId, setTeamId] = useState(currentUser?.teamId || 'team-operasional');
   const [weekNumber, setWeekNumber] = useState(currentWeekInfo.week);
   const [year, setYear] = useState(currentWeekInfo.year);
   const [sections, setSections] = useState<WeeklyReportSections>(emptySections);
+
+  // Compute canonical display name for team (resolves team-operasional to 'Operasional & SDM')
+  const effectiveTeamName = useMemo(() => {
+    if (isDesignPreview) {
+      return DEMO_TEAMS.find((t) => t.id === teamId)?.name || 'Operasional & SDM';
+    }
+    if (currentUser?.teamName && currentUser.teamName !== 'General Team') {
+      return currentUser.teamName;
+    }
+    return getCanonicalTeamName(currentUser?.teamId);
+  }, [isDesignPreview, teamId, currentUser]);
+
+  // Dynamically compute selectable reporting weeks: current week down through previous cycles
+  const availableWeeks = useMemo(() => {
+    const baseWeek = currentWeekInfo.week;
+    const list = [42, 41, 40, 39];
+    if (baseWeek && !list.includes(baseWeek)) {
+      list.unshift(baseWeek);
+    }
+    return Array.from(new Set(list)).sort((a, b) => b - a);
+  }, [currentWeekInfo.week]);
 
   // UI state
   const [autosaveStatus, setAutosaveStatus] = useState<'saved' | 'saving' | 'dirty'>('saved');
@@ -186,6 +213,7 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
           if (existing) {
             setReport(existing);
             setTitle(existing.title);
+            setIsTitleManuallyEdited(true);
             setTeamId(existing.teamId);
             setWeekNumber(existing.weekNumber);
             setYear(existing.year);
@@ -202,6 +230,7 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
               const existing: WeeklyReport = data.data;
               setReport(existing);
               setTitle(existing.title);
+              setIsTitleManuallyEdited(true);
               setTeamId(existing.teamId);
               setWeekNumber(existing.weekNumber);
               setYear(existing.year);
@@ -211,11 +240,12 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
         }
       } else {
         // New report initial state
-        const teamName = isDesignPreview
-          ? DEMO_TEAMS.find((t) => t.id === currentUser?.teamId)?.name || 'Operasional & SDM'
-          : currentUser?.teamName || currentUser?.teamId || 'Operasional & SDM';
-
-        setTitle(`Laporan Mingguan ${teamName} — Pekan ${currentWeekInfo.week}`);
+        const initialWeek = currentWeekInfo.week;
+        const initialYear = currentWeekInfo.year;
+        setWeekNumber(initialWeek);
+        setYear(initialYear);
+        setTitle(`Laporan Mingguan ${effectiveTeamName} — Pekan ${initialWeek}`);
+        setIsTitleManuallyEdited(false);
         setSections({
           achievements: { items: [], noUpdates: false },
           issues: { items: [], noUpdates: false },
@@ -232,6 +262,16 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
       setLoading(false);
     }
   };
+
+  // Synchronize initial default title & team once currentUser finishes loading
+  useEffect(() => {
+    if (!reportId && !isTitleManuallyEdited && currentUser) {
+      setTitle(`Laporan Mingguan ${effectiveTeamName} — Pekan ${weekNumber}`);
+      if (currentUser.teamId) {
+        setTeamId(currentUser.teamId);
+      }
+    }
+  }, [currentUser, effectiveTeamName, reportId, isTitleManuallyEdited, weekNumber]);
 
   const handleSectionsChange = (updated: WeeklyReportSections) => {
     setSections(updated);
@@ -698,6 +738,7 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
               value={title}
               onChange={(e) => {
                 setTitle(e.target.value);
+                setIsTitleManuallyEdited(true);
                 setAutosaveStatus('dirty');
               }}
               className="w-full p-2 text-xs rounded-md border border-slate-300 focus:border-[#6C2AA6] outline-hidden"
@@ -714,7 +755,12 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
                 data-testid="report-team-select"
                 value={teamId}
                 onChange={(e) => {
-                  setTeamId(e.target.value);
+                  const newTeamId = e.target.value;
+                  setTeamId(newTeamId);
+                  if (!isTitleManuallyEdited) {
+                    const selectedTeam = DEMO_TEAMS.find((t) => t.id === newTeamId)?.name || 'Operasional & SDM';
+                    setTitle(`Laporan Mingguan ${selectedTeam} — Pekan ${weekNumber}`);
+                  }
                   setAutosaveStatus('dirty');
                 }}
                 className="w-full p-2 text-xs rounded-md border border-slate-300 focus:border-[#6C2AA6] outline-hidden bg-white"
@@ -729,9 +775,9 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
               <div
                 data-testid="report-team-display"
                 className="p-2 text-xs rounded-md border border-slate-200 bg-slate-50 text-slate-700 font-medium truncate"
-                title={currentUser?.teamName || currentUser?.teamId || 'Divisi Anda'}
+                title={effectiveTeamName}
               >
-                {currentUser?.teamName || currentUser?.teamId || 'Divisi Anda'}
+                {effectiveTeamName}
               </div>
             )}
           </div>
@@ -744,14 +790,20 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
               data-testid="report-week-select"
               value={weekNumber}
               onChange={(e) => {
-                setWeekNumber(Number(e.target.value));
+                const newWeek = Number(e.target.value);
+                setWeekNumber(newWeek);
+                if (!isTitleManuallyEdited) {
+                  setTitle(`Laporan Mingguan ${effectiveTeamName} — Pekan ${newWeek}`);
+                }
                 setAutosaveStatus('dirty');
               }}
               className="w-full p-2 text-xs rounded-md border border-slate-300 focus:border-[#6C2AA6] outline-hidden bg-white"
             >
-              <option value={41}>Pekan 41 (05 – 11 Okt 2026)</option>
-              <option value={40}>Pekan 40 (28 Sep – 04 Okt 2026)</option>
-              <option value={39}>Pekan 39 (21 – 27 Sep 2026)</option>
+              {availableWeeks.map((w) => (
+                <option key={w} value={w}>
+                  {getWeekDates(w, year).label}
+                </option>
+              ))}
             </select>
           </div>
         </div>

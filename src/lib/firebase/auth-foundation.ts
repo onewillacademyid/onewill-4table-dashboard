@@ -7,17 +7,34 @@
 import { User as DomainUser, UserRole } from '@/types';
 import { FirestoreUserDocument } from '@/types/firestore';
 
+export const CANONICAL_TEAM_NAMES: Record<string, string> = {
+  'team-operasional': 'Operasional & SDM',
+  'team-akademik': 'Akademik & Kurikulum',
+  'team-pemasaran': 'Pemasaran & Pertumbuhan',
+  'team-teknologi': 'Teknologi & Produk',
+  'team-executive': 'Manajemen / Executive',
+};
+
+export function getCanonicalTeamName(teamId?: string): string {
+  if (!teamId) return 'General Team';
+  return CANONICAL_TEAM_NAMES[teamId] || teamId;
+}
+
 /**
  * Maps a Firestore user document to the application's domain User model.
  */
 export function mapFirestoreUserToDomainUser(
   doc: FirestoreUserDocument,
-  teamName: string = 'General Team'
+  teamName?: string
 ): DomainUser {
   const nameParts = doc.displayName.trim().split(/\s+/);
   const initials = nameParts.length >= 2
     ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
     : doc.displayName.substring(0, 2).toUpperCase() || 'OW';
+
+  const resolvedTeamName = (teamName && teamName !== 'General Team')
+    ? teamName
+    : getCanonicalTeamName(doc.teamId);
 
   return {
     id: doc.uid,
@@ -25,7 +42,7 @@ export function mapFirestoreUserToDomainUser(
     email: doc.email,
     role: doc.role,
     teamId: doc.teamId,
-    teamName,
+    teamName: resolvedTeamName,
     avatarColor: 'bg-slate-700',
     avatarInitials: initials,
     active: doc.active,

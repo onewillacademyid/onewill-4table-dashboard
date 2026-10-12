@@ -58,6 +58,10 @@ test.describe('M4.1-D2: Authenticated Create Draft UI Integration', () => {
     await page.goto('/test-editor-harness?role=CONTRIBUTOR');
     await expect(page.locator('h1')).toContainText('Buat Laporan Mingguan Baru');
 
+    // Explicitly select week 41 for this integration scenario
+    const weekSelect = page.locator('[data-testid="report-week-select"]');
+    await weekSelect.selectOption('41');
+
     // Fill title
     const titleInput = page.locator('[data-testid="report-title-input"]');
     await titleInput.fill('Laporan Mingguan Operasional — Pekan 41 QA Integration');
@@ -97,6 +101,72 @@ test.describe('M4.1-D2: Authenticated Create Draft UI Integration', () => {
     expect(capturedPayload.createdAt).toBeUndefined();
     expect(capturedPayload.updatedAt).toBeUndefined();
     expect(capturedPayload.archiveStatus).toBeUndefined();
+  });
+
+  test('1b. Contributor defaults to current ISO week W42 and displays canonical team Operasional & SDM', async ({ page }) => {
+    let capturedPayload: any = null;
+    await page.route('**/api/reports', (route) => {
+      route.abort();
+    });
+
+    await page.route('**/api/test-harness/reports', async (route) => {
+      if (route.request().method() === 'POST') {
+        capturedPayload = route.request().postDataJSON();
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            data: {
+              id: 'rep_2026_w42_team-operasional',
+              title: capturedPayload?.title,
+              status: 'DRAFT',
+              weekNumber: 42,
+              year: 2026,
+            },
+          }),
+        });
+      } else {
+        await route.continue();
+      }
+    });
+
+    await page.goto('/test-editor-harness?role=CONTRIBUTOR');
+
+    // Verify canonical team display resolves team-operasional to Operasional & SDM
+    const teamDisplay = page.locator('[data-testid="report-team-display"]');
+    await expect(teamDisplay).toContainText('Operasional & SDM');
+
+    // Verify default week selection is 42
+    const weekSelect = page.locator('[data-testid="report-week-select"]');
+    await expect(weekSelect).toHaveValue('42');
+
+    // Verify default title reflects W42 and canonical team name
+    const titleInput = page.locator('[data-testid="report-title-input"]');
+    await expect(titleInput).toHaveValue('Laporan Mingguan Operasional & SDM — Pekan 42');
+
+    // Click Simpan Draf
+    const saveButton = page.locator('[data-testid="save-draft-button"]');
+    await saveButton.click();
+
+    // Verify navigation indicator triggered with W42 target
+    await expect(page.locator('[data-testid="test-navigation-indicator"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="test-navigation-indicator"]')).toHaveAttribute(
+      'data-target',
+      '/reports/rep_2026_w42_team-operasional'
+    );
+
+    // Verify captured payload matches W42
+    expect(capturedPayload).toBeTruthy();
+    expect(capturedPayload.weekNumber).toBe(42);
+    expect(capturedPayload.year).toBe(2026);
+    expect(capturedPayload.weekStartDate).toBe('2026-10-12');
+    expect(capturedPayload.weekEndDate).toBe('2026-10-18');
+    expect(capturedPayload.title).toBe('Laporan Mingguan Operasional & SDM — Pekan 42');
+
+    // Server-owned fields must be undefined
+    expect(capturedPayload.authorId).toBeUndefined();
+    expect(capturedPayload.teamId).toBeUndefined();
   });
 
   test('2. Client-side validation blocks submission and displays error when title is empty', async ({ page }) => {
