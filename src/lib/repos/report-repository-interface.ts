@@ -19,6 +19,8 @@ export type RepositoryErrorCode =
   | 'REPORT_ALREADY_EXISTS'
   | 'VALIDATION_ERROR'
   | 'MUTATION_DISABLED'
+  | 'EXACT_TARGET_GUARD_DISABLED'
+  | 'EXACT_TARGET_GUARD_REJECTED'
   | 'INTERNAL_ERROR';
 
 export interface RepositoryResult<T> {

@@ -18,6 +18,7 @@ import {
 import { CreateReportInputSchema, deriveReportDocId } from '@/lib/validation/report';
 import { canCreateReport, canReadReport } from '@/lib/auth/rbac-policy';
 import { isReportWriteEnabled } from '@/lib/config/feature-flags';
+import { verifyExactTargetGuard } from '@/lib/auth/exact-target-guard';
 import { getAdminDb } from '@/lib/firebase/admin';
 import { FirestoreAuditEventDocument } from '@/types/firestore';
 import { FieldPath } from 'firebase-admin/firestore';
@@ -229,6 +230,21 @@ export class FirestoreReportRepository implements IReportRepository {
     }
 
     const validData = validation.data;
+
+    // Security Guard 5: Fail-closed Exact-Target Write Guard (M4.1-E2-B1)
+    const guardResult = verifyExactTargetGuard({
+      author,
+      input: validData,
+      operation: 'CREATE_DRAFT',
+    });
+    if (!guardResult.allowed) {
+      return {
+        success: false,
+        code: (guardResult.code === 'MUTATIONS_DISABLED' ? 'MUTATION_DISABLED' : guardResult.code) as any,
+        error: guardResult.error,
+      };
+    }
+
     const docId = deriveReportDocId(author.teamId, validData.year, validData.weekNumber);
     const now = new Date().toISOString();
 

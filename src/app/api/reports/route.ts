@@ -12,6 +12,11 @@ import { cookies } from 'next/headers';
 import { verifyServerSession, validateCsrfOrigin } from '@/lib/auth/server-auth';
 import { CreateReportInputSchema, ListReportsQuerySchema } from '@/lib/validation/report';
 import { getReportRepository } from '@/lib/repos/report-repository-factory';
+import { FirestoreReportRepository } from '@/lib/repos/firestore-report-repository';
+import {
+  verifyExactTargetGuard,
+  isExactTargetEnforcedOnMockRepo,
+} from '@/lib/auth/exact-target-guard';
 
 async function getSessionCookieFromRequest(request: Request): Promise<string> {
   const cookieHeader = request.headers.get('cookie') || '';
@@ -101,6 +106,28 @@ export async function POST(request: Request) {
 
     // 5. Execute Repository Operation (DI via Factory)
     const repo = getReportRepository();
+
+    // 5a. Fail-closed Exact-Target Guard Evaluation (M4.1-E2-B1)
+    // Applies before calling Firestore repository.
+    if (repo instanceof FirestoreReportRepository || isExactTargetEnforcedOnMockRepo()) {
+      const guardResult = verifyExactTargetGuard({
+        author: user,
+        input: validation.data,
+        operation: 'CREATE_DRAFT',
+      });
+
+      if (!guardResult.allowed) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: guardResult.code,
+            error: guardResult.error,
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     const repoResult = await repo.createReport({
       input: validation.data,
       author: user,
@@ -112,6 +139,16 @@ export async function POST(request: Request) {
           {
             success: false,
             code: 'MUTATIONS_DISABLED',
+            error: repoResult.error,
+          },
+          { status: 403 }
+        );
+      }
+      if (repoResult.code === 'EXACT_TARGET_GUARD_DISABLED' || repoResult.code === 'EXACT_TARGET_GUARD_REJECTED') {
+        return NextResponse.json(
+          {
+            success: false,
+            code: repoResult.code,
             error: repoResult.error,
           },
           { status: 403 }

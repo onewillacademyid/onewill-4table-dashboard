@@ -412,6 +412,10 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
       } else if (res.status === 403) {
         if (resData?.code === 'MUTATIONS_DISABLED') {
           setValidationError('Penyimpanan draf laporan dinonaktifkan sementara di server (Feature Gate: REPORTS_FIRESTORE_WRITES_ENABLED=false).');
+        } else if (resData?.code === 'EXACT_TARGET_GUARD_DISABLED') {
+          setValidationError('Penyimpanan draf laporan dibatasi (Exact-Target Guard E2-B dinonaktifkan di server).');
+        } else if (resData?.code === 'EXACT_TARGET_GUARD_REJECTED') {
+          setValidationError(resData?.error || 'Akses ditolak: Operasi tidak memenuhi kriteria exact-target authorization guard E2-B.');
         } else if (resData?.code === 'CSRF_REJECTED') {
           setValidationError('Akses ditolak: Permintaan tidak berasal dari origin terpercaya (CSRF Protection).');
         } else if (resData?.code === 'DISABLED') {
