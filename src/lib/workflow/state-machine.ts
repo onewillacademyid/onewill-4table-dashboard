@@ -46,7 +46,10 @@ export type WorkflowErrorCode =
   | 'INVALID_STATE_TRANSITION'
   | 'INCOMPLETE_SECTIONS'
   | 'MANDATORY_NOTES_REQUIRED'
-  | 'STALE_REVISION_CONFLICT';
+  | 'STALE_REVISION_CONFLICT'
+  | 'MISSING_CONCURRENCY_TOKEN'
+  | 'INVALID_CONCURRENCY_TOKEN'
+  | 'CONCURRENCY_TOKEN_MISMATCH';
 
 export interface WorkflowCaller {
   id: string;
@@ -72,6 +75,7 @@ export interface WorkflowCurrentReport {
   weekEndDate: string;
   status: WorkflowReportStatus;
   revision: number;
+  version?: number; // Concurrency sequence token (M4.2-C)
   sections: WeeklyReportSections;
   revisionsHistory: ReportRevisionHistory[];
   createdAt: string;
@@ -96,7 +100,8 @@ export interface ExecuteTransitionParams {
   caller: WorkflowCaller;
   action: WorkflowAction;
   payload?: TransitionPayload;
-  expectedRevision?: number; // Optimistic concurrency check
+  expectedVersion?: number;  // Optimistic concurrency sequence token check (M4.2-C)
+  expectedRevision?: number; // Business revision check
   timestamp?: string;        // Injected ISO 8601 string for deterministic purity
 }
 
@@ -147,6 +152,7 @@ export interface SaveDraftParams {
     title?: string;
     sections: WeeklyReportSections;
   };
+  expectedVersion?: number;
   expectedRevision?: number;
   timestamp?: string;
 }
@@ -155,9 +161,10 @@ export interface SaveDraftParams {
  * Validates and executes a draft update.
  * Precondition: Report status must be DRAFT or NEEDS_REVISION.
  * Does NOT advance lifecycle status. Preserves current revision number.
+ * Advances concurrency version sequence token (version + 1).
  */
 export function executeSaveDraft(params: SaveDraftParams): WorkflowTransitionResult {
-  const { currentReport, caller, updates, expectedRevision, timestamp } = params;
+  const { currentReport, caller, updates, expectedVersion, expectedRevision, timestamp } = params;
   const now = timestamp || new Date().toISOString();
 
   // 1. Account status verification
@@ -169,7 +176,15 @@ export function executeSaveDraft(params: SaveDraftParams): WorkflowTransitionRes
     };
   }
 
-  // 2. Concurrency verification
+  // 2. Concurrency verification (Token & Revision)
+  const currentVersion = currentReport.version ?? 1;
+  if (expectedVersion !== undefined && expectedVersion !== currentVersion) {
+    return {
+      success: false,
+      code: 'STALE_REVISION_CONFLICT',
+      error: `Konflik konkurensi: Laporan saat ini berada pada versi v${currentVersion}, sedangkan perubahan Anda didasarkan pada versi v${expectedVersion}. Silakan muat ulang halaman.`,
+    };
+  }
   if (expectedRevision !== undefined && expectedRevision !== currentReport.revision) {
     return {
       success: false,
@@ -199,11 +214,14 @@ export function executeSaveDraft(params: SaveDraftParams): WorkflowTransitionRes
     };
   }
 
+  const nextVersion = currentVersion + 1;
+
   // Pure deterministic copy
   const updatedReport: WorkflowCurrentReport = {
     ...currentReport,
     title: updates.title !== undefined ? updates.title.trim() : currentReport.title,
     sections: JSON.parse(JSON.stringify(updates.sections)),
+    version: nextVersion,
     updatedAt: now,
   };
 
@@ -220,6 +238,7 @@ export function executeSaveDraft(params: SaveDraftParams): WorkflowTransitionRes
       year: currentReport.year,
       teamId: currentReport.teamId,
       revision: currentReport.revision,
+      version: nextVersion,
       status: currentReport.status,
     },
   };
@@ -239,7 +258,7 @@ export function executeSaveDraft(params: SaveDraftParams): WorkflowTransitionRes
  * Pure transition engine evaluating T1 (Submit), T2 (Request Revision), T3 (Resubmit), and T4 (Approve).
  */
 export function executeWorkflowTransition(params: ExecuteTransitionParams): WorkflowTransitionResult {
-  const { currentReport, caller, action, payload, expectedRevision, timestamp } = params;
+  const { currentReport, caller, action, payload, expectedVersion, expectedRevision, timestamp } = params;
   const now = timestamp || new Date().toISOString();
 
   // 1. Account Active Guard
@@ -251,7 +270,15 @@ export function executeWorkflowTransition(params: ExecuteTransitionParams): Work
     };
   }
 
-  // 2. Optimistic Concurrency Guard (Stale Revision Prevention)
+  // 2. Optimistic Concurrency Guard (Version Token & Revision Prevention)
+  const currentVersion = currentReport.version ?? 1;
+  if (expectedVersion !== undefined && expectedVersion !== currentVersion) {
+    return {
+      success: false,
+      code: 'STALE_REVISION_CONFLICT',
+      error: `Konflik konkurensi: Laporan saat ini berada pada versi v${currentVersion}, sedangkan perubahan Anda didasarkan pada versi v${expectedVersion}. Silakan muat ulang halaman.`,
+    };
+  }
   if (expectedRevision !== undefined && expectedRevision !== currentReport.revision) {
     return {
       success: false,
@@ -260,14 +287,16 @@ export function executeWorkflowTransition(params: ExecuteTransitionParams): Work
     };
   }
 
+  const nextVersion = currentVersion + 1;
+
   // 3. Action Dispatch
   switch (action) {
     case 'SUBMIT':
-      return handleTransitionSubmit(currentReport, caller, payload, now);
+      return handleTransitionSubmit(currentReport, caller, payload, now, nextVersion);
     case 'REQUEST_REVISION':
-      return handleTransitionRequestRevision(currentReport, caller, payload, now);
+      return handleTransitionRequestRevision(currentReport, caller, payload, now, nextVersion);
     case 'APPROVE':
-      return handleTransitionApprove(currentReport, caller, payload, now);
+      return handleTransitionApprove(currentReport, caller, payload, now, nextVersion);
     default:
       return {
         success: false,
@@ -288,7 +317,8 @@ function handleTransitionSubmit(
   currentReport: WorkflowCurrentReport,
   caller: WorkflowCaller,
   payload: TransitionPayload | undefined,
-  now: string
+  now: string,
+  nextVersion: number
 ): WorkflowTransitionResult {
   // Precondition: Current status must be DRAFT or NEEDS_REVISION
   if (currentReport.status !== 'DRAFT' && currentReport.status !== 'NEEDS_REVISION') {
@@ -340,6 +370,7 @@ function handleTransitionSubmit(
     ...currentReport,
     status: 'SUBMITTED',
     revision: newRevisionNumber,
+    version: nextVersion,
     submittedAt: now,
     updatedAt: now,
     revisionsHistory: [...currentReport.revisionsHistory, newHistoryEntry],
@@ -358,6 +389,7 @@ function handleTransitionSubmit(
       year: currentReport.year,
       teamId: currentReport.teamId,
       revision: newRevisionNumber,
+      version: nextVersion,
       previousStatus: currentReport.status,
       comments: payload?.comments?.trim() || undefined,
     },
@@ -377,7 +409,8 @@ function handleTransitionRequestRevision(
   currentReport: WorkflowCurrentReport,
   caller: WorkflowCaller,
   payload: TransitionPayload | undefined,
-  now: string
+  now: string,
+  nextVersion: number
 ): WorkflowTransitionResult {
   // Precondition: Current status must be SUBMITTED
   if (currentReport.status !== 'SUBMITTED') {
@@ -430,6 +463,7 @@ function handleTransitionRequestRevision(
     ...currentReport,
     status: 'NEEDS_REVISION',
     revision: currentReport.revision, // Preserves current revision number!
+    version: nextVersion,
     reviewedAt: now,
     reviewedBy: caller.id,
     reviewerName: caller.name,
@@ -451,6 +485,7 @@ function handleTransitionRequestRevision(
       year: currentReport.year,
       teamId: currentReport.teamId,
       revision: currentReport.revision,
+      version: nextVersion,
       reviewNotes: trimmedNotes,
     },
   };
@@ -469,7 +504,8 @@ function handleTransitionApprove(
   currentReport: WorkflowCurrentReport,
   caller: WorkflowCaller,
   payload: TransitionPayload | undefined,
-  now: string
+  now: string,
+  nextVersion: number
 ): WorkflowTransitionResult {
   // Precondition: Current status must be SUBMITTED
   if (currentReport.status !== 'SUBMITTED') {
@@ -515,11 +551,12 @@ function handleTransitionApprove(
     ...currentReport,
     status: 'APPROVED',
     revision: currentReport.revision, // Frozen at current revision!
+    version: nextVersion,
     reviewedAt: now,
     reviewedBy: caller.id,
     reviewerName: caller.name,
     reviewNotes: approvalNotes,
-    archiveStatus: 'QUEUED', // Enqueue Google Drive archival independently
+    archiveStatus: 'NOT_ARCHIVED', // Preserved as NOT_ARCHIVED per Option B until operational archiving pipeline exists
     updatedAt: now,
     revisionsHistory: [...currentReport.revisionsHistory, newHistoryEntry],
   };
@@ -547,6 +584,7 @@ function handleTransitionApprove(
       year: currentReport.year,
       teamId: currentReport.teamId,
       revision: currentReport.revision,
+      version: nextVersion,
       reviewNotes: approvalNotes,
       snapshotVersionId: snapshotMetadata.versionId,
     },

@@ -5,29 +5,85 @@
  */
 
 import { User, WeeklyReport } from '@/types';
-import { FirestoreAuditEventDocument } from '@/types/firestore';
+import { FirestoreAuditEventDocument, FirestoreReportVersionDocument } from '@/types/firestore';
 import {
-  IReportRepository,
+  IWorkflowReportRepository,
   CreateReportOptions,
   ListReportsOptions,
   GetReportOptions,
+  UpdateReportDraftOptions,
+  SubmitReportOptions,
+  ApproveReportOptions,
+  RequestRevisionOptions,
   RepositoryResult,
 } from './report-repository-interface';
 import { CreateReportInputSchema, deriveReportDocId } from '@/lib/validation/report';
 import { canCreateReport, canReadReport } from '@/lib/auth/rbac-policy';
+import {
+  executeWorkflowTransition,
+  executeSaveDraft,
+  WorkflowCaller,
+  WorkflowCurrentReport,
+} from '@/lib/workflow/state-machine';
 
 // Strict runtime safeguard against client-side execution/bundling
 if (typeof window !== 'undefined') {
   throw new Error('CRITICAL SECURITY ERROR: Server-only mock repository imported on client side!');
 }
 
-export class InMemoryReportRepository implements IReportRepository {
+function mapUserToWorkflowCaller(user: User): WorkflowCaller {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name || user.email,
+    role: user.role,
+    teamId: user.teamId,
+    teamName: user.teamName,
+    active: user.active !== false,
+  };
+}
+
+function mapDocToWorkflowReport(reportData: WeeklyReport): WorkflowCurrentReport {
+  return {
+    id: reportData.id,
+    title: reportData.title,
+    authorId: reportData.authorId,
+    authorName: reportData.authorName,
+    authorEmail: reportData.authorEmail,
+    teamId: reportData.teamId,
+    teamName: reportData.teamName,
+    weekNumber: reportData.weekNumber,
+    year: reportData.year,
+    weekStartDate: reportData.weekStartDate,
+    weekEndDate: reportData.weekEndDate,
+    status: reportData.status as any,
+    revision: reportData.revision,
+    version: reportData.version ?? 1,
+    sections: reportData.sections,
+    revisionsHistory: reportData.revisionsHistory || [],
+    createdAt: reportData.createdAt,
+    updatedAt: reportData.updatedAt,
+    submittedAt: reportData.submittedAt,
+    reviewedAt: reportData.reviewedAt,
+    reviewedBy: reportData.reviewedBy,
+    reviewerName: reportData.reviewerName,
+    reviewNotes: reportData.reviewNotes,
+    archiveStatus: reportData.archiveStatus,
+    archiveError: reportData.archiveError,
+    archiveDriveFileId: reportData.archiveDriveFileId,
+  };
+}
+
+export class InMemoryReportRepository implements IWorkflowReportRepository {
   private reports: Map<string, WeeklyReport>;
   public auditEvents: FirestoreAuditEventDocument[];
+  public versionSnapshots: Map<string, Map<string, FirestoreReportVersionDocument>>;
+  public enforceWorkflowGate: boolean = false;
 
   constructor(initialReports: WeeklyReport[] = []) {
     this.reports = new Map();
     this.auditEvents = [];
+    this.versionSnapshots = new Map();
     for (const r of initialReports) {
       this.reports.set(r.id, JSON.parse(JSON.stringify(r)));
     }
@@ -219,6 +275,345 @@ export class InMemoryReportRepository implements IReportRepository {
     return {
       success: true,
       data: JSON.parse(JSON.stringify(report)),
+    };
+  }
+
+  public async updateReportDraft(options: UpdateReportDraftOptions): Promise<RepositoryResult<WeeklyReport>> {
+    const { user, reportId, updates, expectedVersion, expectedRevision } = options;
+
+    if (!user || !user.id || !user.teamId) {
+      return {
+        success: false,
+        code: 'UNAUTHENTICATED',
+        error: 'Akses ditolak: Pengguna belum terotentikasi.',
+      };
+    }
+
+    if (typeof expectedVersion !== 'number' || !Number.isInteger(expectedVersion) || expectedVersion < 1) {
+      return {
+        success: false,
+        code: 'MISSING_CONCURRENCY_TOKEN',
+        error: 'Token konkurensi (expectedVersion) wajib disertakan sebagai bilangan bulat positif minimal 1.',
+      };
+    }
+
+    if (this.enforceWorkflowGate) {
+      return {
+        success: false,
+        code: 'MUTATION_DISABLED',
+        error: 'Feature Gate: Workflow writes are disabled on the server (REPORT_WORKFLOW_WRITES_ENABLED=false).',
+      };
+    }
+
+    const report = this.reports.get(reportId);
+    if (!report) {
+      return {
+        success: false,
+        code: 'REPORT_NOT_FOUND',
+        error: `Laporan dengan ID ${reportId} tidak ditemukan.`,
+      };
+    }
+
+    const currentReport = mapDocToWorkflowReport(report);
+    const caller = mapUserToWorkflowCaller(user);
+
+    const transitionResult = executeSaveDraft({
+      currentReport,
+      caller,
+      updates,
+      expectedVersion,
+      expectedRevision,
+    });
+
+    if (transitionResult.success === false) {
+      return {
+        success: false,
+        code: transitionResult.code,
+        error: transitionResult.error,
+      };
+    }
+
+    const nextReport = JSON.parse(JSON.stringify(transitionResult.nextReport)) as WeeklyReport;
+    this.reports.set(reportId, nextReport);
+
+    const auditId = `audit_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    this.auditEvents.push({
+      id: auditId,
+      actorUid: user.id,
+      actorEmail: user.email,
+      actorRole: user.role,
+      action: transitionResult.auditEvent.action,
+      targetType: 'report',
+      targetId: reportId,
+      timestamp: transitionResult.auditEvent.timestamp,
+      metadata: transitionResult.auditEvent.metadata,
+    });
+
+    return {
+      success: true,
+      data: nextReport,
+    };
+  }
+
+  public async submitReport(options: SubmitReportOptions): Promise<RepositoryResult<WeeklyReport>> {
+    const { user, reportId, comments, expectedVersion, expectedRevision } = options;
+
+    if (!user || !user.id || !user.teamId) {
+      return {
+        success: false,
+        code: 'UNAUTHENTICATED',
+        error: 'Akses ditolak: Pengguna belum terotentikasi.',
+      };
+    }
+
+    if (typeof expectedVersion !== 'number' || !Number.isInteger(expectedVersion) || expectedVersion < 1) {
+      return {
+        success: false,
+        code: 'MISSING_CONCURRENCY_TOKEN',
+        error: 'Token konkurensi (expectedVersion) wajib disertakan sebagai bilangan bulat positif minimal 1.',
+      };
+    }
+
+    if (this.enforceWorkflowGate) {
+      return {
+        success: false,
+        code: 'MUTATION_DISABLED',
+        error: 'Feature Gate: Workflow writes are disabled on the server (REPORT_WORKFLOW_WRITES_ENABLED=false).',
+      };
+    }
+
+    const report = this.reports.get(reportId);
+    if (!report) {
+      return {
+        success: false,
+        code: 'REPORT_NOT_FOUND',
+        error: `Laporan dengan ID ${reportId} tidak ditemukan.`,
+      };
+    }
+
+    const currentReport = mapDocToWorkflowReport(report);
+    const caller = mapUserToWorkflowCaller(user);
+
+    const transitionResult = executeWorkflowTransition({
+      currentReport,
+      caller,
+      action: 'SUBMIT',
+      payload: { comments },
+      expectedVersion,
+      expectedRevision,
+    });
+
+    if (transitionResult.success === false) {
+      return {
+        success: false,
+        code: transitionResult.code,
+        error: transitionResult.error,
+      };
+    }
+
+    const nextReport = JSON.parse(JSON.stringify(transitionResult.nextReport)) as WeeklyReport;
+    this.reports.set(reportId, nextReport);
+
+    const auditId = `audit_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    this.auditEvents.push({
+      id: auditId,
+      actorUid: user.id,
+      actorEmail: user.email,
+      actorRole: user.role,
+      action: transitionResult.auditEvent.action,
+      targetType: 'report',
+      targetId: reportId,
+      timestamp: transitionResult.auditEvent.timestamp,
+      metadata: transitionResult.auditEvent.metadata,
+    });
+
+    return {
+      success: true,
+      data: nextReport,
+    };
+  }
+
+  public async requestRevision(options: RequestRevisionOptions): Promise<RepositoryResult<WeeklyReport>> {
+    const { user, reportId, reviewNotes, expectedVersion, expectedRevision } = options;
+
+    if (!user || !user.id || !user.teamId) {
+      return {
+        success: false,
+        code: 'UNAUTHENTICATED',
+        error: 'Akses ditolak: Pengguna belum terotentikasi.',
+      };
+    }
+
+    if (typeof expectedVersion !== 'number' || !Number.isInteger(expectedVersion) || expectedVersion < 1) {
+      return {
+        success: false,
+        code: 'MISSING_CONCURRENCY_TOKEN',
+        error: 'Token konkurensi (expectedVersion) wajib disertakan sebagai bilangan bulat positif minimal 1.',
+      };
+    }
+
+    if (this.enforceWorkflowGate) {
+      return {
+        success: false,
+        code: 'MUTATION_DISABLED',
+        error: 'Feature Gate: Workflow writes are disabled on the server (REPORT_WORKFLOW_WRITES_ENABLED=false).',
+      };
+    }
+
+    const report = this.reports.get(reportId);
+    if (!report) {
+      return {
+        success: false,
+        code: 'REPORT_NOT_FOUND',
+        error: `Laporan dengan ID ${reportId} tidak ditemukan.`,
+      };
+    }
+
+    const currentReport = mapDocToWorkflowReport(report);
+    const caller = mapUserToWorkflowCaller(user);
+
+    const transitionResult = executeWorkflowTransition({
+      currentReport,
+      caller,
+      action: 'REQUEST_REVISION',
+      payload: { reviewNotes },
+      expectedVersion,
+      expectedRevision,
+    });
+
+    if (transitionResult.success === false) {
+      return {
+        success: false,
+        code: transitionResult.code,
+        error: transitionResult.error,
+      };
+    }
+
+    const nextReport = JSON.parse(JSON.stringify(transitionResult.nextReport)) as WeeklyReport;
+    this.reports.set(reportId, nextReport);
+
+    const auditId = `audit_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    this.auditEvents.push({
+      id: auditId,
+      actorUid: user.id,
+      actorEmail: user.email,
+      actorRole: user.role,
+      action: transitionResult.auditEvent.action,
+      targetType: 'report',
+      targetId: reportId,
+      timestamp: transitionResult.auditEvent.timestamp,
+      metadata: transitionResult.auditEvent.metadata,
+    });
+
+    return {
+      success: true,
+      data: nextReport,
+    };
+  }
+
+  public async approveReport(options: ApproveReportOptions): Promise<RepositoryResult<WeeklyReport>> {
+    const { user, reportId, reviewNotes, expectedVersion, expectedRevision } = options;
+
+    if (!user || !user.id || !user.teamId) {
+      return {
+        success: false,
+        code: 'UNAUTHENTICATED',
+        error: 'Akses ditolak: Pengguna belum terotentikasi.',
+      };
+    }
+
+    if (typeof expectedVersion !== 'number' || !Number.isInteger(expectedVersion) || expectedVersion < 1) {
+      return {
+        success: false,
+        code: 'MISSING_CONCURRENCY_TOKEN',
+        error: 'Token konkurensi (expectedVersion) wajib disertakan sebagai bilangan bulat positif minimal 1.',
+      };
+    }
+
+    if (this.enforceWorkflowGate) {
+      return {
+        success: false,
+        code: 'MUTATION_DISABLED',
+        error: 'Feature Gate: Workflow writes are disabled on the server (REPORT_WORKFLOW_WRITES_ENABLED=false).',
+      };
+    }
+
+    const report = this.reports.get(reportId);
+    if (!report) {
+      return {
+        success: false,
+        code: 'REPORT_NOT_FOUND',
+        error: `Laporan dengan ID ${reportId} tidak ditemukan.`,
+      };
+    }
+
+    const currentReport = mapDocToWorkflowReport(report);
+    const caller = mapUserToWorkflowCaller(user);
+
+    const transitionResult = executeWorkflowTransition({
+      currentReport,
+      caller,
+      action: 'APPROVE',
+      payload: { reviewNotes },
+      expectedVersion,
+      expectedRevision,
+    });
+
+    if (transitionResult.success === false) {
+      return {
+        success: false,
+        code: transitionResult.code,
+        error: transitionResult.error,
+      };
+    }
+
+    // Immutable snapshot handling: do not overwrite existing snapshot
+    if (transitionResult.snapshotMetadata) {
+      const snapshotMeta = transitionResult.snapshotMetadata;
+      if (!this.versionSnapshots.has(reportId)) {
+        this.versionSnapshots.set(reportId, new Map());
+      }
+      const reportSnapshots = this.versionSnapshots.get(reportId)!;
+      if (reportSnapshots.has(snapshotMeta.versionId)) {
+        return {
+          success: false,
+          code: 'SNAPSHOT_ALREADY_EXISTS',
+          error: `Snapshot versi ${snapshotMeta.versionId} sudah ada dan tidak boleh ditimpa.`,
+        };
+      }
+
+      const versionDoc: FirestoreReportVersionDocument = {
+        versionId: snapshotMeta.versionId,
+        reportId,
+        revisionNumber: snapshotMeta.revisionNumber,
+        snapshot: transitionResult.nextReport.sections,
+        approvedBy: snapshotMeta.approvedBy,
+        approvedByName: snapshotMeta.approvedByName,
+        approvedAt: snapshotMeta.approvedAt,
+        notes: snapshotMeta.notes,
+      };
+      reportSnapshots.set(snapshotMeta.versionId, versionDoc);
+    }
+
+    const nextReport = JSON.parse(JSON.stringify(transitionResult.nextReport)) as WeeklyReport;
+    this.reports.set(reportId, nextReport);
+
+    const auditId = `audit_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    this.auditEvents.push({
+      id: auditId,
+      actorUid: user.id,
+      actorEmail: user.email,
+      actorRole: user.role,
+      action: transitionResult.auditEvent.action,
+      targetType: 'report',
+      targetId: reportId,
+      timestamp: transitionResult.auditEvent.timestamp,
+      metadata: transitionResult.auditEvent.metadata,
+    });
+
+    return {
+      success: true,
+      data: nextReport,
     };
   }
 }

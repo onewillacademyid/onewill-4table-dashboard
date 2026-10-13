@@ -48,6 +48,7 @@ export interface FirestoreReportDocument {
   weekEndDate: string; // YYYY-MM-DD
   status: ReportStatus;
   revision: number;
+  version?: number; // Concurrency sequence token (M4.2-C)
   revisionsHistory: ReportRevisionHistory[];
   sections: WeeklyReportSections;
   createdAt: string; // ISO 8601 string or ServerTimestamp

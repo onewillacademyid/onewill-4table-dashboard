@@ -4,7 +4,7 @@
  * Guaranteed production isolation against mock repository activation.
  */
 
-import { IReportRepository } from './report-repository-interface';
+import { IWorkflowReportRepository } from './report-repository-interface';
 import { FirestoreReportRepository } from './firestore-report-repository';
 
 // Strict runtime safeguard against client-side execution/bundling
@@ -12,16 +12,16 @@ if (typeof window !== 'undefined') {
   throw new Error('CRITICAL SECURITY ERROR: Repository factory imported on client side!');
 }
 
-let activeRepository: IReportRepository = new FirestoreReportRepository();
+let activeRepository: IWorkflowReportRepository = new FirestoreReportRepository();
 
-export function getReportRepository(): IReportRepository {
+export function getReportRepository(): IWorkflowReportRepository {
   if (process.env.NODE_ENV === 'production') {
     return new FirestoreReportRepository();
   }
   return activeRepository;
 }
 
-export function setReportRepositoryForTesting(repo: IReportRepository): void {
+export function setReportRepositoryForTesting(repo: IWorkflowReportRepository): void {
   if (process.env.NODE_ENV === 'production') {
     throw new Error('CRITICAL SECURITY ERROR: Repository test overrides are strictly prohibited in production!');
   }

@@ -368,7 +368,7 @@ assert(t4Result.success === true, 'T4: Team Lead approves resubmitted report');
 if (t4Result.success) {
   assert(t4Result.nextReport.status === 'APPROVED', 'T4: Next status is APPROVED');
   assert(t4Result.nextReport.revision === 2, 'T4: Approved revision frozen at 2');
-  assert(t4Result.nextReport.archiveStatus === 'QUEUED', 'T4: archiveStatus transitions to QUEUED');
+  assert(t4Result.nextReport.archiveStatus === 'NOT_ARCHIVED', 'T4: archiveStatus remains NOT_ARCHIVED');
   assert(t4Result.auditEvent.action === 'REPORT_APPROVED', 'T4: Audit action is REPORT_APPROVED');
   assert(t4Result.snapshotMetadata !== undefined, 'T4: Creates snapshotMetadata for v2');
   assert(t4Result.snapshotMetadata?.versionId === 'v2', 'T4: Snapshot versionId is "v2"');

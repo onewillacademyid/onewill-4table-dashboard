@@ -145,6 +145,7 @@ export interface WeeklyReport {
   weekEndDate: string; // YYYY-MM-DD (Minggu)
   status: ReportStatus;
   revision: number;
+  version?: number; // Concurrency sequence token (M4.2-C)
   revisionsHistory: ReportRevisionHistory[];
   sections: WeeklyReportSections;
   createdAt: string;

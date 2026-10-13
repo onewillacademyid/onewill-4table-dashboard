@@ -24,3 +24,17 @@ export function isAdminMutationEnabled(): boolean {
 export function isReportWriteEnabled(): boolean {
   return process.env.REPORTS_FIRESTORE_WRITES_ENABLED === 'true';
 }
+
+/**
+ * Evaluates whether workflow mutations (draft updates, submit, request-revision, approve)
+ * are enabled on the server.
+ * Environment variable: REPORT_WORKFLOW_WRITES_ENABLED (default: false).
+ * STRICT RULE: Fail-closed. Both REPORTS_FIRESTORE_WRITES_ENABLED and REPORT_WORKFLOW_WRITES_ENABLED
+ * must be enabled for workflow mutations to touch real Firestore.
+ */
+export function isReportWorkflowWriteEnabled(): boolean {
+  return (
+    process.env.REPORTS_FIRESTORE_WRITES_ENABLED === 'true' &&
+    process.env.REPORT_WORKFLOW_WRITES_ENABLED === 'true'
+  );
+}

@@ -9,19 +9,73 @@
 import crypto from 'node:crypto';
 import { User, WeeklyReport } from '@/types';
 import {
-  IReportRepository,
+  IWorkflowReportRepository,
   CreateReportOptions,
   ListReportsOptions,
   GetReportOptions,
+  UpdateReportDraftOptions,
+  SubmitReportOptions,
+  ApproveReportOptions,
+  RequestRevisionOptions,
   RepositoryResult,
+  RepositoryErrorCode,
 } from './report-repository-interface';
 import { CreateReportInputSchema, deriveReportDocId } from '@/lib/validation/report';
 import { canCreateReport, canReadReport } from '@/lib/auth/rbac-policy';
-import { isReportWriteEnabled } from '@/lib/config/feature-flags';
+import { isReportWriteEnabled, isReportWorkflowWriteEnabled } from '@/lib/config/feature-flags';
 import { verifyExactTargetGuard } from '@/lib/auth/exact-target-guard';
 import { getAdminDb } from '@/lib/firebase/admin';
-import { FirestoreAuditEventDocument } from '@/types/firestore';
+import { FirestoreAuditEventDocument, FirestoreReportVersionDocument } from '@/types/firestore';
 import { FieldPath } from 'firebase-admin/firestore';
+import {
+  executeWorkflowTransition,
+  executeSaveDraft,
+  WorkflowCaller,
+  WorkflowCurrentReport,
+} from '@/lib/workflow/state-machine';
+
+function mapUserToWorkflowCaller(user: User): WorkflowCaller {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name || user.email,
+    role: user.role,
+    teamId: user.teamId,
+    teamName: user.teamName,
+    active: user.active !== false,
+  };
+}
+
+function mapDocToWorkflowReport(reportData: WeeklyReport): WorkflowCurrentReport {
+  return {
+    id: reportData.id,
+    title: reportData.title,
+    authorId: reportData.authorId,
+    authorName: reportData.authorName,
+    authorEmail: reportData.authorEmail,
+    teamId: reportData.teamId,
+    teamName: reportData.teamName,
+    weekNumber: reportData.weekNumber,
+    year: reportData.year,
+    weekStartDate: reportData.weekStartDate,
+    weekEndDate: reportData.weekEndDate,
+    status: reportData.status as any,
+    revision: reportData.revision,
+    version: reportData.version ?? 1,
+    sections: reportData.sections,
+    revisionsHistory: reportData.revisionsHistory || [],
+    createdAt: reportData.createdAt,
+    updatedAt: reportData.updatedAt,
+    submittedAt: reportData.submittedAt,
+    reviewedAt: reportData.reviewedAt,
+    reviewedBy: reportData.reviewedBy,
+    reviewerName: reportData.reviewerName,
+    reviewNotes: reportData.reviewNotes,
+    archiveStatus: reportData.archiveStatus,
+    archiveError: reportData.archiveError,
+    archiveDriveFileId: reportData.archiveDriveFileId,
+  };
+}
 
 // Strict runtime safeguard against client-side execution/bundling
 if (typeof window !== 'undefined') {
@@ -180,7 +234,7 @@ export function verifyAndDecodeCursor(
   }
 }
 
-export class FirestoreReportRepository implements IReportRepository {
+export class FirestoreReportRepository implements IWorkflowReportRepository {
   /**
    * Creates a new report draft.
    * Derives authorId, authorName, authorEmail, teamId, and teamName strictly from verified user session.
@@ -617,6 +671,411 @@ export class FirestoreReportRepository implements IReportRepository {
         success: false,
         code: 'INTERNAL_ERROR',
         error: `Gagal membaca detail laporan: ${err.message}`,
+      };
+    }
+  }
+
+  /**
+   * Updates an existing report draft or report needing revision.
+   * Enforces server-authoritative optimistic concurrency check.
+   * Atomic Firestore transaction writing updated report and REPORT_UPDATED audit event.
+   */
+  public async updateReportDraft(options: UpdateReportDraftOptions): Promise<RepositoryResult<WeeklyReport>> {
+    const { user, reportId, updates, expectedVersion, expectedRevision } = options;
+
+    if (!user || !user.id || !user.teamId) {
+      return {
+        success: false,
+        code: 'UNAUTHENTICATED',
+        error: 'Akses ditolak: Pengguna belum terotentikasi.',
+      };
+    }
+
+    if (typeof expectedVersion !== 'number' || !Number.isInteger(expectedVersion) || expectedVersion < 1) {
+      return {
+        success: false,
+        code: 'MISSING_CONCURRENCY_TOKEN',
+        error: 'Token konkurensi (expectedVersion) wajib disertakan sebagai bilangan bulat positif minimal 1.',
+      };
+    }
+
+    if (!isReportWorkflowWriteEnabled()) {
+      return {
+        success: false,
+        code: 'MUTATION_DISABLED',
+        error: 'Feature Gate: Workflow writes are disabled on the server (REPORT_WORKFLOW_WRITES_ENABLED=false).',
+      };
+    }
+
+    const db = getAdminDb();
+    const docRef = db.collection('reports').doc(reportId);
+    const auditId = `audit_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const auditRef = db.collection('audit_events').doc(auditId);
+
+    try {
+      let finalReport: WeeklyReport | null = null;
+      await db.runTransaction(async (transaction) => {
+        const docSnap = await transaction.get(docRef);
+        if (!docSnap.exists) {
+          throw new Error('REPORT_NOT_FOUND');
+        }
+
+        const reportData = docSnap.data() as WeeklyReport;
+        const currentReport = mapDocToWorkflowReport(reportData);
+        const caller = mapUserToWorkflowCaller(user);
+
+        const transitionResult = executeSaveDraft({
+          currentReport,
+          caller,
+          updates,
+          expectedVersion,
+          expectedRevision,
+        });
+
+        if (transitionResult.success === false) {
+          const err = new Error(transitionResult.error);
+          (err as any).code = transitionResult.code;
+          throw err;
+        }
+
+        finalReport = transitionResult.nextReport as WeeklyReport;
+        transaction.set(docRef, transitionResult.nextReport);
+
+        const auditEvent: FirestoreAuditEventDocument = {
+          id: auditId,
+          actorUid: user.id,
+          actorEmail: user.email,
+          actorRole: user.role,
+          action: transitionResult.auditEvent.action,
+          targetType: 'report',
+          targetId: reportId,
+          timestamp: transitionResult.auditEvent.timestamp,
+          metadata: transitionResult.auditEvent.metadata,
+        };
+        transaction.set(auditRef, auditEvent);
+      });
+
+      return {
+        success: true,
+        data: finalReport!,
+      };
+    } catch (err: any) {
+      const code = (err.code || (err.message === 'REPORT_NOT_FOUND' ? 'REPORT_NOT_FOUND' : 'INTERNAL_ERROR')) as RepositoryErrorCode;
+      return {
+        success: false,
+        code,
+        error: err.message,
+      };
+    }
+  }
+
+  /**
+   * Submits a report draft or resubmits a report needing revision.
+   * Enforces 4-table completeness and author authorization.
+   * Atomic Firestore transaction writing updated report and audit event.
+   */
+  public async submitReport(options: SubmitReportOptions): Promise<RepositoryResult<WeeklyReport>> {
+    const { user, reportId, comments, expectedVersion, expectedRevision } = options;
+
+    if (!user || !user.id || !user.teamId) {
+      return {
+        success: false,
+        code: 'UNAUTHENTICATED',
+        error: 'Akses ditolak: Pengguna belum terotentikasi.',
+      };
+    }
+
+    if (typeof expectedVersion !== 'number' || !Number.isInteger(expectedVersion) || expectedVersion < 1) {
+      return {
+        success: false,
+        code: 'MISSING_CONCURRENCY_TOKEN',
+        error: 'Token konkurensi (expectedVersion) wajib disertakan sebagai bilangan bulat positif minimal 1.',
+      };
+    }
+
+    if (!isReportWorkflowWriteEnabled()) {
+      return {
+        success: false,
+        code: 'MUTATION_DISABLED',
+        error: 'Feature Gate: Workflow writes are disabled on the server (REPORT_WORKFLOW_WRITES_ENABLED=false).',
+      };
+    }
+
+    const db = getAdminDb();
+    const docRef = db.collection('reports').doc(reportId);
+    const auditId = `audit_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const auditRef = db.collection('audit_events').doc(auditId);
+
+    try {
+      let finalReport: WeeklyReport | null = null;
+      await db.runTransaction(async (transaction) => {
+        const docSnap = await transaction.get(docRef);
+        if (!docSnap.exists) {
+          throw new Error('REPORT_NOT_FOUND');
+        }
+
+        const reportData = docSnap.data() as WeeklyReport;
+        const currentReport = mapDocToWorkflowReport(reportData);
+        const caller = mapUserToWorkflowCaller(user);
+
+        const transitionResult = executeWorkflowTransition({
+          currentReport,
+          caller,
+          action: 'SUBMIT',
+          payload: { comments },
+          expectedVersion,
+          expectedRevision,
+        });
+
+        if (transitionResult.success === false) {
+          const err = new Error(transitionResult.error);
+          (err as any).code = transitionResult.code;
+          throw err;
+        }
+
+        finalReport = transitionResult.nextReport as WeeklyReport;
+        transaction.set(docRef, transitionResult.nextReport);
+
+        const auditEvent: FirestoreAuditEventDocument = {
+          id: auditId,
+          actorUid: user.id,
+          actorEmail: user.email,
+          actorRole: user.role,
+          action: transitionResult.auditEvent.action,
+          targetType: 'report',
+          targetId: reportId,
+          timestamp: transitionResult.auditEvent.timestamp,
+          metadata: transitionResult.auditEvent.metadata,
+        };
+        transaction.set(auditRef, auditEvent);
+      });
+
+      return {
+        success: true,
+        data: finalReport!,
+      };
+    } catch (err: any) {
+      const code = (err.code || (err.message === 'REPORT_NOT_FOUND' ? 'REPORT_NOT_FOUND' : 'INTERNAL_ERROR')) as RepositoryErrorCode;
+      return {
+        success: false,
+        code,
+        error: err.message,
+      };
+    }
+  }
+
+  /**
+   * Requests revision for a submitted report.
+   * Enforces Segregation of Duties and mandatory review notes (>= 10 chars).
+   * Atomic Firestore transaction writing updated report and REVISION_REQUESTED audit event.
+   */
+  public async requestRevision(options: RequestRevisionOptions): Promise<RepositoryResult<WeeklyReport>> {
+    const { user, reportId, reviewNotes, expectedVersion, expectedRevision } = options;
+
+    if (!user || !user.id || !user.teamId) {
+      return {
+        success: false,
+        code: 'UNAUTHENTICATED',
+        error: 'Akses ditolak: Pengguna belum terotentikasi.',
+      };
+    }
+
+    if (typeof expectedVersion !== 'number' || !Number.isInteger(expectedVersion) || expectedVersion < 1) {
+      return {
+        success: false,
+        code: 'MISSING_CONCURRENCY_TOKEN',
+        error: 'Token konkurensi (expectedVersion) wajib disertakan sebagai bilangan bulat positif minimal 1.',
+      };
+    }
+
+    if (!isReportWorkflowWriteEnabled()) {
+      return {
+        success: false,
+        code: 'MUTATION_DISABLED',
+        error: 'Feature Gate: Workflow writes are disabled on the server (REPORT_WORKFLOW_WRITES_ENABLED=false).',
+      };
+    }
+
+    const db = getAdminDb();
+    const docRef = db.collection('reports').doc(reportId);
+    const auditId = `audit_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const auditRef = db.collection('audit_events').doc(auditId);
+
+    try {
+      let finalReport: WeeklyReport | null = null;
+      await db.runTransaction(async (transaction) => {
+        const docSnap = await transaction.get(docRef);
+        if (!docSnap.exists) {
+          throw new Error('REPORT_NOT_FOUND');
+        }
+
+        const reportData = docSnap.data() as WeeklyReport;
+        const currentReport = mapDocToWorkflowReport(reportData);
+        const caller = mapUserToWorkflowCaller(user);
+
+        const transitionResult = executeWorkflowTransition({
+          currentReport,
+          caller,
+          action: 'REQUEST_REVISION',
+          payload: { reviewNotes },
+          expectedVersion,
+          expectedRevision,
+        });
+
+        if (transitionResult.success === false) {
+          const err = new Error(transitionResult.error);
+          (err as any).code = transitionResult.code;
+          throw err;
+        }
+
+        finalReport = transitionResult.nextReport as WeeklyReport;
+        transaction.set(docRef, transitionResult.nextReport);
+
+        const auditEvent: FirestoreAuditEventDocument = {
+          id: auditId,
+          actorUid: user.id,
+          actorEmail: user.email,
+          actorRole: user.role,
+          action: transitionResult.auditEvent.action,
+          targetType: 'report',
+          targetId: reportId,
+          timestamp: transitionResult.auditEvent.timestamp,
+          metadata: transitionResult.auditEvent.metadata,
+        };
+        transaction.set(auditRef, auditEvent);
+      });
+
+      return {
+        success: true,
+        data: finalReport!,
+      };
+    } catch (err: any) {
+      const code = (err.code || (err.message === 'REPORT_NOT_FOUND' ? 'REPORT_NOT_FOUND' : 'INTERNAL_ERROR')) as RepositoryErrorCode;
+      return {
+        success: false,
+        code,
+        error: err.message,
+      };
+    }
+  }
+
+  /**
+   * Approves a submitted report.
+   * Enforces Segregation of Duties (Author CANNOT approve own report, even Admin/Super Admin).
+   * Writes immutable snapshot to reports/{id}/versions/v{revision} (rejecting overwrite if exists).
+   * Preserves archiveStatus: NOT_ARCHIVED (Option B) until operational archiving pipeline exists.
+   * Atomic Firestore transaction writing report, snapshot, and REPORT_APPROVED audit event.
+   */
+  public async approveReport(options: ApproveReportOptions): Promise<RepositoryResult<WeeklyReport>> {
+    const { user, reportId, reviewNotes, expectedVersion, expectedRevision } = options;
+
+    if (!user || !user.id || !user.teamId) {
+      return {
+        success: false,
+        code: 'UNAUTHENTICATED',
+        error: 'Akses ditolak: Pengguna belum terotentikasi.',
+      };
+    }
+
+    if (typeof expectedVersion !== 'number' || !Number.isInteger(expectedVersion) || expectedVersion < 1) {
+      return {
+        success: false,
+        code: 'MISSING_CONCURRENCY_TOKEN',
+        error: 'Token konkurensi (expectedVersion) wajib disertakan sebagai bilangan bulat positif minimal 1.',
+      };
+    }
+
+    if (!isReportWorkflowWriteEnabled()) {
+      return {
+        success: false,
+        code: 'MUTATION_DISABLED',
+        error: 'Feature Gate: Workflow writes are disabled on the server (REPORT_WORKFLOW_WRITES_ENABLED=false).',
+      };
+    }
+
+    const db = getAdminDb();
+    const docRef = db.collection('reports').doc(reportId);
+    const auditId = `audit_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const auditRef = db.collection('audit_events').doc(auditId);
+
+    try {
+      let finalReport: WeeklyReport | null = null;
+      await db.runTransaction(async (transaction) => {
+        const docSnap = await transaction.get(docRef);
+        if (!docSnap.exists) {
+          throw new Error('REPORT_NOT_FOUND');
+        }
+
+        const reportData = docSnap.data() as WeeklyReport;
+        const currentReport = mapDocToWorkflowReport(reportData);
+        const caller = mapUserToWorkflowCaller(user);
+
+        const transitionResult = executeWorkflowTransition({
+          currentReport,
+          caller,
+          action: 'APPROVE',
+          payload: { reviewNotes },
+          expectedVersion,
+          expectedRevision,
+        });
+
+        if (transitionResult.success === false) {
+          const err = new Error(transitionResult.error);
+          (err as any).code = transitionResult.code;
+          throw err;
+        }
+
+        // Immutable snapshot preparation at reports/{id}/versions/v{revision}
+        if (transitionResult.snapshotMetadata) {
+          const snapshotMeta = transitionResult.snapshotMetadata;
+          const versionRef = docRef.collection('versions').doc(snapshotMeta.versionId);
+          const versionSnap = await transaction.get(versionRef);
+          if (versionSnap.exists) {
+            const err = new Error(`Snapshot versi ${snapshotMeta.versionId} sudah ada dan tidak boleh ditimpa.`);
+            (err as any).code = 'SNAPSHOT_ALREADY_EXISTS';
+            throw err;
+          }
+
+          const versionDoc: FirestoreReportVersionDocument = {
+            versionId: snapshotMeta.versionId,
+            reportId,
+            revisionNumber: snapshotMeta.revisionNumber,
+            snapshot: transitionResult.nextReport.sections,
+            approvedBy: snapshotMeta.approvedBy,
+            approvedByName: snapshotMeta.approvedByName,
+            approvedAt: snapshotMeta.approvedAt,
+            notes: snapshotMeta.notes,
+          };
+          transaction.set(versionRef, versionDoc);
+        }
+
+        finalReport = transitionResult.nextReport as WeeklyReport;
+        transaction.set(docRef, transitionResult.nextReport);
+
+        const auditEvent: FirestoreAuditEventDocument = {
+          id: auditId,
+          actorUid: user.id,
+          actorEmail: user.email,
+          actorRole: user.role,
+          action: transitionResult.auditEvent.action,
+          targetType: 'report',
+          targetId: reportId,
+          timestamp: transitionResult.auditEvent.timestamp,
+          metadata: transitionResult.auditEvent.metadata,
+        };
+        transaction.set(auditRef, auditEvent);
+      });
+
+      return {
+        success: true,
+        data: finalReport!,
+      };
+    } catch (err: any) {
+      const code = (err.code || (err.message === 'REPORT_NOT_FOUND' ? 'REPORT_NOT_FOUND' : 'INTERNAL_ERROR')) as RepositoryErrorCode;
+      return {
+        success: false,
+        code,
+        error: err.message,
       };
     }
   }

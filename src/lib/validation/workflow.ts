@@ -20,6 +20,8 @@ export const UpdateReportDraftSchema = z
   .object({
     title: z.string().max(300, 'Judul laporan maksimal 300 karakter.').optional(),
     sections: WeeklyReportSectionsSchema,
+    expectedVersion: z.number().int().min(1).optional(),
+    expectedRevision: z.number().int().min(1).optional(),
   })
   .strict();
 
@@ -31,6 +33,8 @@ export type UpdateReportDraftInput = z.infer<typeof UpdateReportDraftSchema>;
 export const SubmitReportSchema = z
   .object({
     comments: z.string().max(1000, 'Catatan pengajuan maksimal 1000 karakter.').optional(),
+    expectedVersion: z.number().int().min(1).optional(),
+    expectedRevision: z.number().int().min(1).optional(),
   })
   .strict();
 
@@ -42,6 +46,8 @@ export type SubmitReportInput = z.infer<typeof SubmitReportSchema>;
 export const ApproveReportSchema = z
   .object({
     reviewNotes: z.string().max(2000, 'Catatan persetujuan maksimal 2000 karakter.').optional(),
+    expectedVersion: z.number().int().min(1).optional(),
+    expectedRevision: z.number().int().min(1).optional(),
   })
   .strict();
 
@@ -57,6 +63,8 @@ export const RequestRevisionSchema = z
       .trim()
       .min(10, 'Catatan revisi wajib diisi minimal 10 karakter.')
       .max(2000, 'Catatan revisi maksimal 2000 karakter.'),
+    expectedVersion: z.number().int().min(1).optional(),
+    expectedRevision: z.number().int().min(1).optional(),
   })
   .strict();
 
@@ -122,5 +130,88 @@ export function validateFourTableCompleteness(sections: WeeklyReportSections): F
   return {
     complete: true,
     missingSections: [],
+  };
+}
+
+// ==========================================
+// 6. Concurrency Token Resolver & Validator
+// ==========================================
+export interface ConcurrencyTokenResolution {
+  valid: boolean;
+  expectedVersion?: number;
+  code?: 'MISSING_CONCURRENCY_TOKEN' | 'INVALID_CONCURRENCY_TOKEN' | 'CONCURRENCY_TOKEN_MISMATCH';
+  error?: string;
+}
+
+/**
+ * Resolves and strictly validates the expectedVersion concurrency token.
+ * Canonical API contract rules:
+ * 1. Can be supplied via JSON body `expectedVersion` or HTTP header `x-expected-version`.
+ * 2. If both are supplied: they MUST match; conflicting values are rejected with 400 CONCURRENCY_TOKEN_MISMATCH.
+ * 3. Token must be an integer >= 1. Malformed values are rejected with 400 INVALID_CONCURRENCY_TOKEN.
+ * 4. Missing token is rejected with 400 MISSING_CONCURRENCY_TOKEN before repository mutation.
+ */
+export function resolveExpectedVersion(
+  bodyVersion: unknown,
+  headerVersionStr: string | null | undefined
+): ConcurrencyTokenResolution {
+  let parsedHeaderVersion: number | undefined;
+
+  if (headerVersionStr !== null && headerVersionStr !== undefined && headerVersionStr.trim().length > 0) {
+    const trimmed = headerVersionStr.trim();
+    if (!/^\d+$/.test(trimmed)) {
+      return {
+        valid: false,
+        code: 'INVALID_CONCURRENCY_TOKEN',
+        error: 'Header x-expected-version harus berupa bilangan bulat positif.',
+      };
+    }
+    const val = parseInt(trimmed, 10);
+    if (!Number.isSafeInteger(val) || val < 1) {
+      return {
+        valid: false,
+        code: 'INVALID_CONCURRENCY_TOKEN',
+        error: 'Header x-expected-version harus berupa bilangan bulat positif minimal 1.',
+      };
+    }
+    parsedHeaderVersion = val;
+  }
+
+  let parsedBodyVersion: number | undefined;
+  if (bodyVersion !== undefined && bodyVersion !== null) {
+    if (typeof bodyVersion !== 'number' || !Number.isInteger(bodyVersion) || bodyVersion < 1) {
+      return {
+        valid: false,
+        code: 'INVALID_CONCURRENCY_TOKEN',
+        error: 'Field expectedVersion pada body harus berupa bilangan bulat positif minimal 1.',
+      };
+    }
+    parsedBodyVersion = bodyVersion;
+  }
+
+  // Precedence and Conflict check:
+  if (parsedHeaderVersion !== undefined && parsedBodyVersion !== undefined) {
+    if (parsedHeaderVersion !== parsedBodyVersion) {
+      return {
+        valid: false,
+        code: 'CONCURRENCY_TOKEN_MISMATCH',
+        error: `Konflik token konkurensi: Nilai header x-expected-version (${parsedHeaderVersion}) dan body expectedVersion (${parsedBodyVersion}) tidak cocok.`,
+      };
+    }
+    return { valid: true, expectedVersion: parsedBodyVersion };
+  }
+
+  if (parsedBodyVersion !== undefined) {
+    return { valid: true, expectedVersion: parsedBodyVersion };
+  }
+
+  if (parsedHeaderVersion !== undefined) {
+    return { valid: true, expectedVersion: parsedHeaderVersion };
+  }
+
+  return {
+    valid: false,
+    code: 'MISSING_CONCURRENCY_TOKEN',
+    error: 'Token konkurensi (expectedVersion pada body atau header x-expected-version) wajib disertakan untuk melakukan mutasi.',
   };
 }
