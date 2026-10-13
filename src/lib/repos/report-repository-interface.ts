@@ -15,12 +15,18 @@ export type RepositoryErrorCode =
   | 'UNAUTHENTICATED'
   | 'CROSS_TEAM_FORBIDDEN'
   | 'UNAUTHORIZED_ROLE'
+  | 'SELF_APPROVAL_PROHIBITED'
+  | 'SELF_REVISION_PROHIBITED'
   | 'REPORT_NOT_FOUND'
   | 'REPORT_ALREADY_EXISTS'
   | 'VALIDATION_ERROR'
   | 'MUTATION_DISABLED'
   | 'EXACT_TARGET_GUARD_DISABLED'
   | 'EXACT_TARGET_GUARD_REJECTED'
+  | 'INVALID_STATE_TRANSITION'
+  | 'INCOMPLETE_SECTIONS'
+  | 'MANDATORY_NOTES_REQUIRED'
+  | 'STALE_REVISION_CONFLICT'
   | 'INTERNAL_ERROR';
 
 export interface RepositoryResult<T> {
@@ -47,6 +53,38 @@ export interface GetReportOptions {
   reportId: string;
 }
 
+// Future M4.2-C workflow repository options
+export interface UpdateReportDraftOptions {
+  user: User;
+  reportId: string;
+  updates: {
+    title?: string;
+    sections: any;
+  };
+  expectedRevision?: number;
+}
+
+export interface SubmitReportOptions {
+  user: User;
+  reportId: string;
+  comments?: string;
+  expectedRevision?: number;
+}
+
+export interface ApproveReportOptions {
+  user: User;
+  reportId: string;
+  reviewNotes?: string;
+  expectedRevision?: number;
+}
+
+export interface RequestRevisionOptions {
+  user: User;
+  reportId: string;
+  reviewNotes: string;
+  expectedRevision?: number;
+}
+
 export interface IReportRepository {
   /**
    * Creates a new report draft.
@@ -66,4 +104,15 @@ export interface IReportRepository {
    * Evaluates server-side RBAC canReadReport check before returning report payload.
    */
   getReportById(options: GetReportOptions): Promise<RepositoryResult<WeeklyReport>>;
+}
+
+/**
+ * Additive interface extension for M4.2-C workflow operations.
+ * Preserves 100% backward compatibility with existing IReportRepository implementations.
+ */
+export interface IWorkflowReportRepository extends IReportRepository {
+  updateReportDraft?(options: UpdateReportDraftOptions): Promise<RepositoryResult<WeeklyReport>>;
+  submitReport?(options: SubmitReportOptions): Promise<RepositoryResult<WeeklyReport>>;
+  approveReport?(options: ApproveReportOptions): Promise<RepositoryResult<WeeklyReport>>;
+  requestRevision?(options: RequestRevisionOptions): Promise<RepositoryResult<WeeklyReport>>;
 }
