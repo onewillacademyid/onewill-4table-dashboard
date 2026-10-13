@@ -249,11 +249,16 @@ export async function PATCH(
     });
 
     if (!repoResult.success) {
-      if (repoResult.code === 'MUTATION_DISABLED') {
+      if (
+        repoResult.code === 'MUTATION_DISABLED' ||
+        repoResult.code === 'CONTROLLED_WORKFLOW_GUARD_DISABLED' ||
+        repoResult.code === 'CONTROLLED_WORKFLOW_GUARD_REJECTED' ||
+        repoResult.code === 'CONTROLLED_WORKFLOW_BUDGET_EXHAUSTED'
+      ) {
         return NextResponse.json(
           {
             success: false,
-            code: 'MUTATION_DISABLED',
+            code: repoResult.code,
             error: repoResult.error,
           },
           { status: 403 }

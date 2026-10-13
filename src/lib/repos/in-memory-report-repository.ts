@@ -25,6 +25,10 @@ import {
   WorkflowCaller,
   WorkflowCurrentReport,
 } from '@/lib/workflow/state-machine';
+import {
+  verifyControlledWorkflowGuard,
+  isControlledWorkflowGuardEnforcedOnMockRepo,
+} from '@/lib/auth/controlled-workflow-guard';
 
 // Strict runtime safeguard against client-side execution/bundling
 if (typeof window !== 'undefined') {
@@ -305,6 +309,22 @@ export class InMemoryReportRepository implements IWorkflowReportRepository {
       };
     }
 
+    if (isControlledWorkflowGuardEnforcedOnMockRepo()) {
+      const guardResult = verifyControlledWorkflowGuard({
+        user,
+        reportId,
+        operation: 'SAVE_DRAFT',
+        projectId: 'onewill-academy-weekly-report',
+      });
+      if (!guardResult.allowed) {
+        return {
+          success: false,
+          code: guardResult.code as any,
+          error: guardResult.error,
+        };
+      }
+    }
+
     const report = this.reports.get(reportId);
     if (!report) {
       return {
@@ -380,6 +400,22 @@ export class InMemoryReportRepository implements IWorkflowReportRepository {
         code: 'MUTATION_DISABLED',
         error: 'Feature Gate: Workflow writes are disabled on the server (REPORT_WORKFLOW_WRITES_ENABLED=false).',
       };
+    }
+
+    if (isControlledWorkflowGuardEnforcedOnMockRepo()) {
+      const guardResult = verifyControlledWorkflowGuard({
+        user,
+        reportId,
+        operation: 'SUBMIT',
+        projectId: 'onewill-academy-weekly-report',
+      });
+      if (!guardResult.allowed) {
+        return {
+          success: false,
+          code: guardResult.code as any,
+          error: guardResult.error,
+        };
+      }
     }
 
     const report = this.reports.get(reportId);
@@ -460,6 +496,22 @@ export class InMemoryReportRepository implements IWorkflowReportRepository {
       };
     }
 
+    if (isControlledWorkflowGuardEnforcedOnMockRepo()) {
+      const guardResult = verifyControlledWorkflowGuard({
+        user,
+        reportId,
+        operation: 'REQUEST_REVISION',
+        projectId: 'onewill-academy-weekly-report',
+      });
+      if (!guardResult.allowed) {
+        return {
+          success: false,
+          code: guardResult.code as any,
+          error: guardResult.error,
+        };
+      }
+    }
+
     const report = this.reports.get(reportId);
     if (!report) {
       return {
@@ -536,6 +588,22 @@ export class InMemoryReportRepository implements IWorkflowReportRepository {
         code: 'MUTATION_DISABLED',
         error: 'Feature Gate: Workflow writes are disabled on the server (REPORT_WORKFLOW_WRITES_ENABLED=false).',
       };
+    }
+
+    if (isControlledWorkflowGuardEnforcedOnMockRepo()) {
+      const guardResult = verifyControlledWorkflowGuard({
+        user,
+        reportId,
+        operation: 'APPROVE',
+        projectId: 'onewill-academy-weekly-report',
+      });
+      if (!guardResult.allowed) {
+        return {
+          success: false,
+          code: guardResult.code as any,
+          error: guardResult.error,
+        };
+      }
     }
 
     const report = this.reports.get(reportId);

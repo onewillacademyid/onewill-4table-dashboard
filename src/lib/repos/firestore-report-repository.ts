@@ -24,6 +24,7 @@ import { CreateReportInputSchema, deriveReportDocId } from '@/lib/validation/rep
 import { canCreateReport, canReadReport } from '@/lib/auth/rbac-policy';
 import { isReportWriteEnabled, isReportWorkflowWriteEnabled } from '@/lib/config/feature-flags';
 import { verifyExactTargetGuard } from '@/lib/auth/exact-target-guard';
+import { verifyControlledWorkflowGuard } from '@/lib/auth/controlled-workflow-guard';
 import { getAdminDb } from '@/lib/firebase/admin';
 import { FirestoreAuditEventDocument, FirestoreReportVersionDocument } from '@/types/firestore';
 import { FieldPath } from 'firebase-admin/firestore';
@@ -707,6 +708,19 @@ export class FirestoreReportRepository implements IWorkflowReportRepository {
       };
     }
 
+    const guardResult = verifyControlledWorkflowGuard({
+      user,
+      reportId,
+      operation: 'SAVE_DRAFT',
+    });
+    if (!guardResult.allowed) {
+      return {
+        success: false,
+        code: (guardResult.code === 'MUTATION_DISABLED' ? 'MUTATION_DISABLED' : guardResult.code) as any,
+        error: guardResult.error,
+      };
+    }
+
     const db = getAdminDb();
     const docRef = db.collection('reports').doc(reportId);
     const auditId = `audit_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
@@ -798,6 +812,19 @@ export class FirestoreReportRepository implements IWorkflowReportRepository {
         success: false,
         code: 'MUTATION_DISABLED',
         error: 'Feature Gate: Workflow writes are disabled on the server (REPORT_WORKFLOW_WRITES_ENABLED=false).',
+      };
+    }
+
+    const guardResult = verifyControlledWorkflowGuard({
+      user,
+      reportId,
+      operation: 'SUBMIT',
+    });
+    if (!guardResult.allowed) {
+      return {
+        success: false,
+        code: (guardResult.code === 'MUTATION_DISABLED' ? 'MUTATION_DISABLED' : guardResult.code) as any,
+        error: guardResult.error,
       };
     }
 
@@ -896,6 +923,19 @@ export class FirestoreReportRepository implements IWorkflowReportRepository {
       };
     }
 
+    const guardResult = verifyControlledWorkflowGuard({
+      user,
+      reportId,
+      operation: 'REQUEST_REVISION',
+    });
+    if (!guardResult.allowed) {
+      return {
+        success: false,
+        code: (guardResult.code === 'MUTATION_DISABLED' ? 'MUTATION_DISABLED' : guardResult.code) as any,
+        error: guardResult.error,
+      };
+    }
+
     const db = getAdminDb();
     const docRef = db.collection('reports').doc(reportId);
     const auditId = `audit_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
@@ -990,6 +1030,19 @@ export class FirestoreReportRepository implements IWorkflowReportRepository {
         success: false,
         code: 'MUTATION_DISABLED',
         error: 'Feature Gate: Workflow writes are disabled on the server (REPORT_WORKFLOW_WRITES_ENABLED=false).',
+      };
+    }
+
+    const guardResult = verifyControlledWorkflowGuard({
+      user,
+      reportId,
+      operation: 'APPROVE',
+    });
+    if (!guardResult.allowed) {
+      return {
+        success: false,
+        code: (guardResult.code === 'MUTATION_DISABLED' ? 'MUTATION_DISABLED' : guardResult.code) as any,
+        error: guardResult.error,
       };
     }
 
