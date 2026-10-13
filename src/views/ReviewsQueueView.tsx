@@ -28,11 +28,17 @@ import { StatusBadge } from '../components/StatusBadge';
 import { formatDateTimeIndonesian } from '../utils/dateUtils';
 import { useAuth } from '../context/AuthContext';
 
-interface ReviewsQueueViewProps {
+export interface ReviewsQueueViewProps {
   onOpenReport: (reportId: string) => void;
+  isDesignPreview?: boolean;
+  apiEndpoint?: string;
 }
 
-export const ReviewsQueueView: React.FC<ReviewsQueueViewProps> = ({ onOpenReport }) => {
+export const ReviewsQueueView: React.FC<ReviewsQueueViewProps> = ({
+  onOpenReport,
+  isDesignPreview = false,
+  apiEndpoint,
+}) => {
   const { currentUser, canApprove, openLoginModal } = useAuth();
   const [submittedReports, setSubmittedReports] = useState<WeeklyReport[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,15 +52,37 @@ export const ReviewsQueueView: React.FC<ReviewsQueueViewProps> = ({ onOpenReport
 
   useEffect(() => {
     loadQueue();
-  }, []);
+  }, [isDesignPreview, apiEndpoint]);
 
   const loadQueue = async () => {
     setLoading(true);
+    setErrorMsg(null);
     try {
-      const allReports = await reportRepository.listReports({ status: 'SUBMITTED' });
-      setSubmittedReports(allReports);
+      if (isDesignPreview) {
+        const allReports = await reportRepository.listReports({ status: 'SUBMITTED' });
+        setSubmittedReports(allReports);
+      } else {
+        const fetchUrl = apiEndpoint
+          ? `${apiEndpoint}?status=SUBMITTED`
+          : '/api/reports?status=SUBMITTED';
+
+        const res = await fetch(fetchUrl, {
+          credentials: 'same-origin',
+        });
+        const data = await res.json().catch(() => null);
+
+        if (res.ok && data?.success && data.data?.reports) {
+          setSubmittedReports(data.data.reports);
+        } else {
+          setSubmittedReports([]);
+          if (!res.ok) {
+            setErrorMsg(data?.error || 'Gagal memuat antrean peninjauan dari server.');
+          }
+        }
+      }
     } catch (err) {
-      console.error(err);
+      console.error('Error loading review queue:', err);
+      setErrorMsg('Gagal terhubung ke server saat memuat antrean laporan.');
     } finally {
       setLoading(false);
     }
@@ -72,32 +100,94 @@ export const ReviewsQueueView: React.FC<ReviewsQueueViewProps> = ({ onOpenReport
     setIsProcessing(true);
     setErrorMsg(null);
 
-    try {
-      if (decisionType === 'APPROVE') {
-        await reportRepository.approveReport(
-          selectedReport.id,
-          currentUser.id,
-          currentUser.name,
-          reviewNote
-        );
-      } else {
-        if (!reviewNote.trim()) {
-          setErrorMsg('Catatan revisi wajib diisi agar penulis memahami apa yang harus diperbaiki.');
-          setIsProcessing(false);
-          return;
+    // Enforce minimum 10 characters for Request Revision notes
+    if (decisionType === 'REVISE') {
+      const trimmedNotes = reviewNote.trim();
+      if (trimmedNotes.length < 10) {
+        setErrorMsg('Catatan revisi wajib diisi minimal 10 karakter agar instruksi perbaikan jelas.');
+        setIsProcessing(false);
+        return;
+      }
+    }
+
+    // Design Preview isolated path
+    if (isDesignPreview) {
+      try {
+        if (decisionType === 'APPROVE') {
+          await reportRepository.approveReport(
+            selectedReport.id,
+            currentUser.id,
+            currentUser.name,
+            reviewNote
+          );
+        } else {
+          await reportRepository.requestRevision(
+            selectedReport.id,
+            currentUser.id,
+            currentUser.name,
+            reviewNote
+          );
         }
-        await reportRepository.requestRevision(
-          selectedReport.id,
-          currentUser.id,
-          currentUser.name,
-          reviewNote
-        );
+        setSelectedReport(null);
+        await loadQueue();
+      } catch (err: any) {
+        setErrorMsg(err.message || 'Gagal memproses keputusan peninjauan.');
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    // Live Mode Server API Execution
+    try {
+      const baseApi = apiEndpoint ? apiEndpoint.replace(/\?.*$/, '') : '/api/reports';
+      const actionPath = decisionType === 'APPROVE' ? 'approve' : 'request-revision';
+      const url = `${baseApi}/${encodeURIComponent(selectedReport.id)}/${actionPath}`;
+
+      const currentVersion = selectedReport.version || 1;
+      const res = await fetch(url, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-expected-version': String(currentVersion),
+        },
+        body: JSON.stringify({
+          expectedVersion: currentVersion,
+          expectedRevision: selectedReport.revision,
+          reviewNotes: reviewNote.trim() || undefined,
+        }),
+      });
+
+      const resData = await res.json().catch(() => null);
+
+      if (res.ok && resData?.success) {
+        setSelectedReport(null);
+        await loadQueue();
+        return;
       }
 
-      setSelectedReport(null);
-      await loadQueue();
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Gagal menyimpan keputusan peninjauan.');
+      // Handle specific error codes
+      if (res.status === 409) {
+        setErrorMsg(
+          'Terjadi konflik versi (Stale Revision Conflict): Laporan ini telah diperbarui atau disetujui sebelumnya oleh pihak lain. Silakan muat ulang antrean.'
+        );
+      } else if (res.status === 403) {
+        if (resData?.code === 'SELF_APPROVAL_PROHIBITED') {
+          setErrorMsg('Akses ditolak (Segregasi Tugas): Anda adalah penyusun laporan ini dan tidak dapat menyetujuinya sendiri.');
+        } else if (resData?.code === 'CROSS_TEAM_FORBIDDEN') {
+          setErrorMsg('Akses ditolak: Anda tidak memiliki wewenang meninjau laporan dari divisi lain.');
+        } else {
+          setErrorMsg(resData?.error || 'Akses ditolak: Anda tidak memiliki izin untuk tindakan ini.');
+        }
+      } else if (res.status === 400) {
+        setErrorMsg(resData?.error || 'Permintaan peninjauan tidak valid.');
+      } else {
+        setErrorMsg(resData?.error || 'Gagal memproses peninjauan laporan.');
+      }
+    } catch (err) {
+      console.error('Fetch error executing review decision:', err);
+      setErrorMsg('Koneksi terputus saat mengirim keputusan ke server.');
     } finally {
       setIsProcessing(false);
     }
@@ -190,6 +280,7 @@ export const ReviewsQueueView: React.FC<ReviewsQueueViewProps> = ({ onOpenReport
               return (
                 <div
                   key={report.id}
+                  data-testid={`review-card-${report.id}`}
                   className="p-4 sm:p-5 hover:bg-slate-50/70 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4"
                 >
                   <div className="space-y-1.5 flex-1">
@@ -205,7 +296,10 @@ export const ReviewsQueueView: React.FC<ReviewsQueueViewProps> = ({ onOpenReport
                         Revisi #{report.revision}
                       </span>
                       {isAuthor && (
-                        <span className="text-[10px] bg-rose-100 text-rose-800 font-semibold px-2 py-0.5 rounded">
+                        <span
+                          data-testid={`self-approval-badge-${report.id}`}
+                          className="text-[10px] bg-rose-100 text-rose-800 font-semibold px-2 py-0.5 rounded"
+                        >
                           Laporan Anda sendiri
                         </span>
                       )}
@@ -246,6 +340,7 @@ export const ReviewsQueueView: React.FC<ReviewsQueueViewProps> = ({ onOpenReport
 
                     <button
                       onClick={() => handleOpenReview(report, 'REVISE')}
+                      data-testid={`request-revision-btn-${report.id}`}
                       disabled={!check.allowed}
                       title={!check.allowed ? check.reason : 'Minta penulis melakukan revisi'}
                       className="px-3.5 py-2 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 disabled:opacity-40 disabled:cursor-not-allowed border border-rose-200 rounded-xl transition-colors cursor-pointer min-h-[44px]"
@@ -255,6 +350,7 @@ export const ReviewsQueueView: React.FC<ReviewsQueueViewProps> = ({ onOpenReport
 
                     <button
                       onClick={() => handleOpenReview(report, 'APPROVE')}
+                      data-testid={`approve-report-btn-${report.id}`}
                       disabled={!check.allowed}
                       title={!check.allowed ? check.reason : 'Setujui laporan ini secara resmi'}
                       className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed rounded-xl transition-colors cursor-pointer shadow-2xs min-h-[44px]"
@@ -271,7 +367,10 @@ export const ReviewsQueueView: React.FC<ReviewsQueueViewProps> = ({ onOpenReport
 
       {/* Review Decision Modal */}
       {selectedReport && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+        <div
+          data-testid="review-decision-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs"
+        >
           <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full border border-slate-200 overflow-hidden text-xs">
             <div className="p-4 bg-[#35115A] text-white flex items-center justify-between">
               <div>
@@ -284,6 +383,7 @@ export const ReviewsQueueView: React.FC<ReviewsQueueViewProps> = ({ onOpenReport
               </div>
               <button
                 onClick={() => setSelectedReport(null)}
+                data-testid="close-review-modal-btn"
                 className="text-white/70 hover:text-white p-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
               >
                 ✕
@@ -295,7 +395,7 @@ export const ReviewsQueueView: React.FC<ReviewsQueueViewProps> = ({ onOpenReport
                 <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900 text-xs">
                   <p className="font-semibold">Konfirmasi persetujuan laporan</p>
                   <p className="text-[11px] text-emerald-800 mt-0.5">
-                    Laporan yang disetujui akan berstatus <strong>APPROVED</strong> dan bersifat permanen. Penulis tidak dapat mengubah isi tanpa membuat tiket amendemen resmi baru.
+                    Laporan yang disetujui akan berstatus <strong>APPROVED</strong> dan snapshot permanen disimpan di subcollection <code>versions/v{selectedReport.revision}</code>.
                   </p>
                 </div>
               ) : (
@@ -310,8 +410,14 @@ export const ReviewsQueueView: React.FC<ReviewsQueueViewProps> = ({ onOpenReport
               <div>
                 <label className="block text-slate-700 font-semibold mb-1">
                   Catatan untuk penulis {decisionType === 'REVISE' && <span className="text-rose-500">*</span>}
+                  {decisionType === 'REVISE' && (
+                    <span className="ml-1.5 text-[11px] font-normal text-slate-400">
+                      ({reviewNote.trim().length} / min. 10 karakter)
+                    </span>
+                  )}
                 </label>
                 <textarea
+                  data-testid="review-notes-textarea"
                   value={reviewNote}
                   onChange={(e) => setReviewNote(e.target.value)}
                   placeholder={
@@ -325,7 +431,10 @@ export const ReviewsQueueView: React.FC<ReviewsQueueViewProps> = ({ onOpenReport
               </div>
 
               {errorMsg && (
-                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl">
+                <div
+                  data-testid="review-modal-error"
+                  className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl"
+                >
                   {errorMsg}
                 </div>
               )}
@@ -333,6 +442,7 @@ export const ReviewsQueueView: React.FC<ReviewsQueueViewProps> = ({ onOpenReport
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
                 <button
                   type="button"
+                  data-testid="cancel-review-button"
                   onClick={() => setSelectedReport(null)}
                   className="px-4 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer min-h-[44px]"
                 >
@@ -340,6 +450,7 @@ export const ReviewsQueueView: React.FC<ReviewsQueueViewProps> = ({ onOpenReport
                 </button>
                 <button
                   type="button"
+                  data-testid="confirm-review-button"
                   onClick={handleExecuteDecision}
                   disabled={isProcessing}
                   className={`px-4 py-2.5 font-semibold text-white rounded-xl transition-colors cursor-pointer min-h-[44px] ${

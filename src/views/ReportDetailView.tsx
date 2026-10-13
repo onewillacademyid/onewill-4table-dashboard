@@ -40,6 +40,7 @@ export interface ReportDetailViewProps {
   onBack: () => void;
   onEdit: (reportId: string) => void;
   isDesignPreview?: boolean;
+  apiEndpoint?: string;
 }
 
 export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
@@ -47,6 +48,7 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
   onBack,
   onEdit,
   isDesignPreview = false,
+  apiEndpoint,
 }) => {
   const { currentUser, canApprove, canEdit, canArchive } = useAuth();
   const [report, setReport] = useState<WeeklyReport | null>(null);
@@ -67,7 +69,7 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
 
   useEffect(() => {
     loadReport();
-  }, [reportId]);
+  }, [reportId, apiEndpoint]);
 
   const loadReport = async () => {
     setLoading(true);
@@ -90,7 +92,11 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
 
     // Live API Mode (GET /api/reports/[id])
     try {
-      const res = await fetch(`/api/reports/${reportId}`, {
+      const fetchUrl = apiEndpoint
+        ? `${apiEndpoint}/${encodeURIComponent(reportId)}`
+        : `/api/reports/${encodeURIComponent(reportId)}`;
+
+      const res = await fetch(fetchUrl, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
@@ -116,7 +122,11 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
         return;
       }
 
-      setReport(body.data || null);
+      const fetchedReport: WeeklyReport = body.data;
+      if (fetchedReport && fetchedReport.version === undefined) {
+        fetchedReport.version = 1;
+      }
+      setReport(fetchedReport || null);
     } catch (err: any) {
       console.error('API Fetch Error in ReportDetailView:', err);
       setError('Gagal terhubung ke server. Periksa koneksi jaringan Anda.');
@@ -189,31 +199,91 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
     setIsProcessing(true);
     setActionError(null);
 
-    try {
-      if (reviewAction === 'APPROVE') {
-        await reportRepository.approveReport(
-          report.id,
-          currentUser.id,
-          currentUser.name,
-          reviewNote || 'Disetujui tanpa catatan khusus.'
-        );
-      } else {
-        if (!reviewNote.trim()) {
-          setActionError('Alasan penolakan / catatan revisi wajib diisi.');
-          setIsProcessing(false);
-          return;
-        }
-        await reportRepository.requestRevision(
-          report.id,
-          currentUser.id,
-          currentUser.name,
-          reviewNote
-        );
+    if (reviewAction === 'REJECT') {
+      const trimmedNotes = reviewNote.trim();
+      if (trimmedNotes.length < 10) {
+        setActionError('Catatan revisi wajib diisi minimal 10 karakter.');
+        setIsProcessing(false);
+        return;
       }
-      setIsReviewModalOpen(false);
-      await loadReport();
-    } catch (err: any) {
-      setActionError(err.message || 'Gagal memproses tinjauan.');
+    }
+
+    if (isDesignPreview) {
+      try {
+        if (reviewAction === 'APPROVE') {
+          await reportRepository.approveReport(
+            report.id,
+            currentUser.id,
+            currentUser.name,
+            reviewNote || 'Disetujui tanpa catatan khusus.'
+          );
+        } else {
+          await reportRepository.requestRevision(
+            report.id,
+            currentUser.id,
+            currentUser.name,
+            reviewNote
+          );
+        }
+        setIsReviewModalOpen(false);
+        await loadReport();
+      } catch (err: any) {
+        setActionError(err.message || 'Gagal memproses tinjauan.');
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    // Live Server API Execution
+    try {
+      const baseApi = apiEndpoint ? apiEndpoint.replace(/\?.*$/, '') : '/api/reports';
+      const actionPath = reviewAction === 'APPROVE' ? 'approve' : 'request-revision';
+      const url = `${baseApi}/${encodeURIComponent(report.id)}/${actionPath}`;
+
+      const currentVersion = report.version || 1;
+      const res = await fetch(url, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-expected-version': String(currentVersion),
+        },
+        body: JSON.stringify({
+          expectedVersion: currentVersion,
+          expectedRevision: report.revision,
+          reviewNotes: reviewNote.trim() || undefined,
+        }),
+      });
+
+      const resData = await res.json().catch(() => null);
+
+      if (res.ok && resData?.success) {
+        setIsReviewModalOpen(false);
+        await loadReport();
+        return;
+      }
+
+      if (res.status === 409) {
+        setActionError(
+          'Terjadi konflik versi (Stale Revision Conflict): Laporan ini telah diperbarui atau disetujui sebelumnya oleh pihak lain. Silakan muat ulang laporan.'
+        );
+      } else if (res.status === 403) {
+        if (resData?.code === 'SELF_APPROVAL_PROHIBITED') {
+          setActionError('Akses ditolak (Segregasi Tugas): Anda adalah penyusun laporan ini dan tidak dapat menyetujuinya sendiri.');
+        } else if (resData?.code === 'CROSS_TEAM_FORBIDDEN') {
+          setActionError('Akses ditolak: Anda tidak memiliki wewenang meninjau laporan dari divisi lain.');
+        } else {
+          setActionError(resData?.error || 'Akses ditolak: Anda tidak memiliki hak akses untuk tindakan ini.');
+        }
+      } else if (res.status === 400) {
+        setActionError(resData?.error || 'Permintaan tidak valid.');
+      } else {
+        setActionError(resData?.error || 'Gagal memproses tinjauan.');
+      }
+    } catch (err) {
+      console.error('Fetch error executing review in detail view:', err);
+      setActionError('Koneksi terputus saat menghubungi server.');
     } finally {
       setIsProcessing(false);
     }
@@ -291,23 +361,22 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2.5 flex-wrap">
-            {/* If approved, show "Buat Amendemen" */}
+            {/* If approved, show Immutable Approved Badge (ADR-007) */}
             {report.status === 'APPROVED' && (
-              <button
-                type="button"
-                onClick={handleCreateAmendment}
-                className="px-3.5 py-2 text-xs font-semibold text-[#6C2AA6] bg-[#F4EFFA] hover:bg-[#ebdcf9] rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
-                title="Buka kembali laporan sebagai revisi baru"
+              <div
+                data-testid="detail-approved-badge"
+                className="px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center gap-1.5"
               >
-                <Edit3 className="w-3.5 h-3.5" />
-                <span>Buat Amendemen (Rev #{report.revision + 1})</span>
-              </button>
+                <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Disetujui (Permanen)</span>
+              </div>
             )}
 
             {/* If Draft or Needs Revision and editable */}
             {userCanEdit && report.status !== 'APPROVED' && (
               <button
                 type="button"
+                data-testid="edit-report-btn"
                 onClick={() => onEdit(report.id)}
                 className="px-3.5 py-2 text-xs font-semibold text-white bg-[#6C2AA6] hover:bg-[#35115A] rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
               >
@@ -321,6 +390,7 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
               <div className="relative">
                 <button
                   type="button"
+                  data-testid="open-review-modal-btn"
                   onClick={() => setIsReviewModalOpen(true)}
                   disabled={!approvalCheck.allowed}
                   title={!approvalCheck.allowed ? approvalCheck.reason : 'Tinjau dan beri keputusan'}
@@ -336,23 +406,26 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
               </div>
             )}
 
-            {/* Archive button simulation */}
-            {userCanArchive && report.status === 'APPROVED' && (
-              <button
-                type="button"
-                onClick={() => setIsArchiveModalOpen(true)}
-                className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
+            {/* Archive status badge */}
+            {report.status === 'APPROVED' && (
+              <div
+                data-testid="detail-archive-status-badge"
+                className="px-3 py-1.5 text-xs font-medium text-slate-600 bg-slate-50 border border-slate-200 rounded-lg flex items-center gap-1.5"
+                title="Option B: Archive Status remains NOT_ARCHIVED until background export pipeline is deployed."
               >
-                <Archive className="w-3.5 h-3.5 text-[#6C2AA6]" />
-                <span>Arsipkan ke Drive (Simulasi)</span>
-              </button>
+                <Archive className="w-3.5 h-3.5 text-slate-400" />
+                <span>Arsip: {report.archiveStatus === 'NOT_ARCHIVED' ? 'Belum Diarsipkan' : report.archiveStatus}</span>
+              </div>
             )}
           </div>
         </div>
 
         {/* Self-approval blocking notice */}
         {report.status === 'SUBMITTED' && !approvalCheck.allowed && (
-          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-start gap-2">
+          <div
+            data-testid="self-approval-notice"
+            className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-start gap-2"
+          >
             <AlertOctagon className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
             <div>
               <span className="font-semibold">Pemberitahuan Hak Akses:</span> {approvalCheck.reason}
@@ -427,13 +500,17 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
 
       {/* Review Dialog Modal */}
       {isReviewModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+        <div
+          data-testid="detail-review-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs"
+        >
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full border border-slate-200 overflow-hidden">
             <div className="p-4 bg-[#35115A] text-white flex items-center justify-between">
               <h3 className="text-sm font-bold">Peninjauan Laporan Mingguan</h3>
               <button
                 onClick={() => setIsReviewModalOpen(false)}
-                className="text-white/70 hover:text-white"
+                data-testid="close-detail-review-modal-btn"
+                className="text-white/70 hover:text-white p-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
               >
                 ✕
               </button>
@@ -445,8 +522,9 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
+                    data-testid="detail-review-approve-btn"
                     onClick={() => setReviewAction('APPROVE')}
-                    className={`p-2.5 rounded-lg border text-center font-semibold cursor-pointer ${
+                    className={`p-2.5 rounded-lg border text-center font-semibold cursor-pointer min-h-[44px] ${
                       reviewAction === 'APPROVE'
                         ? 'bg-emerald-50 border-emerald-500 text-emerald-800 ring-2 ring-emerald-500/20'
                         : 'border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -456,8 +534,9 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
                   </button>
                   <button
                     type="button"
+                    data-testid="detail-review-revise-btn"
                     onClick={() => setReviewAction('REJECT')}
-                    className={`p-2.5 rounded-lg border text-center font-semibold cursor-pointer ${
+                    className={`p-2.5 rounded-lg border text-center font-semibold cursor-pointer min-h-[44px] ${
                       reviewAction === 'REJECT'
                         ? 'bg-rose-50 border-rose-500 text-rose-800 ring-2 ring-rose-500/20'
                         : 'border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -471,8 +550,14 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
               <div>
                 <label className="block text-slate-700 font-semibold mb-1">
                   Catatan untuk Penulis {reviewAction === 'REJECT' && <span className="text-rose-500">*</span>}
+                  {reviewAction === 'REJECT' && (
+                    <span className="ml-1.5 text-[11px] font-normal text-slate-400">
+                      ({reviewNote.trim().length} / min. 10 karakter)
+                    </span>
+                  )}
                 </label>
                 <textarea
+                  data-testid="detail-review-notes"
                   value={reviewNote}
                   onChange={(e) => setReviewNote(e.target.value)}
                   placeholder={
@@ -481,12 +566,15 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
                       : 'Jelaskan butir mana yang perlu diperbaiki oleh penulis...'
                   }
                   rows={3}
-                  className="w-full p-2.5 rounded-lg border border-slate-300 focus:border-[#6C2AA6] outline-hidden"
+                  className="w-full p-2.5 rounded-lg border border-slate-300 focus:border-[#6C2AA6] outline-hidden text-xs"
                 />
               </div>
 
               {actionError && (
-                <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-lg">
+                <div
+                  data-testid="detail-review-error"
+                  className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-lg"
+                >
                   {actionError}
                 </div>
               )}
@@ -494,16 +582,18 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
                 <button
                   type="button"
+                  data-testid="detail-review-cancel-btn"
                   onClick={() => setIsReviewModalOpen(false)}
-                  className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                  className="px-3.5 py-2 text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer min-h-[44px]"
                 >
                   Batal
                 </button>
                 <button
                   type="button"
+                  data-testid="detail-review-submit-btn"
                   onClick={handleExecuteReview}
                   disabled={isProcessing}
-                  className="px-4 py-1.5 font-semibold text-white bg-[#6C2AA6] hover:bg-[#35115A] rounded-lg transition-colors cursor-pointer"
+                  className="px-4 py-2 font-semibold text-white bg-[#6C2AA6] hover:bg-[#35115A] rounded-lg transition-colors cursor-pointer min-h-[44px]"
                 >
                   {isProcessing ? 'Memproses...' : 'Simpan Keputusan'}
                 </button>

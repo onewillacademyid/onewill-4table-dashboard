@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Isolated Development/Testing Harness for ReportEditorView (Client Component).
+ * Isolated Development/Testing Harness for Workflow UI (Client Component).
  * STRICT SECURITY BOUNDARY:
  * Only imported and rendered by the server-side TestEditorHarnessPage when NODE_ENV !== 'production'.
  */
@@ -9,8 +9,11 @@
 import React, { useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ReportEditorView } from '@/views/ReportEditorView';
+import { ReportDetailView } from '@/views/ReportDetailView';
+import { ReviewsQueueView } from '@/views/ReviewsQueueView';
 import { AuthContext } from '@/context/AuthContext';
 import { User, UserRole, WeeklyReport } from '@/types';
+import { canApproveReport, canEditReport } from '@/lib/auth/rbac-policy';
 
 function TestHarnessContent() {
   const searchParams = useSearchParams();
@@ -18,16 +21,22 @@ function TestHarnessContent() {
   const isAuthParam = searchParams.get('auth') !== 'false';
   const isActiveParam = searchParams.get('active') !== 'false';
   const isPreviewParam = searchParams.get('preview') === 'true';
+  const viewParam = searchParams.get('view') || 'editor';
+  const reportIdParam = searchParams.get('reportId') || null;
+  const userIdParam = searchParams.get('userId') || 'test-user-id-adhi';
+  const teamIdParam = searchParams.get('teamId') || 'team-operasional';
+  const teamNameParam = searchParams.get('teamName') || 'Operasional & SDM';
+  const apiEndpointParam = searchParams.get('apiEndpoint') || '/api/test-harness/reports';
 
   const [navigationTarget, setNavigationTarget] = useState<string | null>(null);
 
   const testUser: User = {
-    id: 'test-user-id-adhi',
-    name: 'Adhi Monow (Test)',
-    email: 'adhimonow@gmail.com',
+    id: userIdParam,
+    name: userIdParam === 'test-user-id-lead' ? 'Budi Santoso (Lead)' : 'Adhi Monow (Test)',
+    email: `${userIdParam}@onewill.test`,
     role: roleParam,
-    teamId: 'team-operasional',
-    teamName: 'Operasional & SDM',
+    teamId: teamIdParam,
+    teamName: teamNameParam,
     avatarColor: '#6C2AA6',
     avatarInitials: 'AM',
     active: isActiveParam,
@@ -43,9 +52,15 @@ function TestHarnessContent() {
     switchUser: () => {},
     refreshSession: async () => {},
     logout: async () => {},
-    canApprove: (_report: WeeklyReport) => ({ allowed: false }),
-    canEdit: (_report: WeeklyReport) => true,
-    canSubmit: (_report: WeeklyReport) => true,
+    canApprove: (report: WeeklyReport) => {
+      if (!isAuthParam || !testUser) return { allowed: false, reason: 'Pengguna belum terotentikasi.' };
+      return canApproveReport(testUser, report);
+    },
+    canEdit: (report: WeeklyReport) => {
+      if (!isAuthParam || !testUser) return false;
+      return canEditReport(testUser, report).allowed;
+    },
+    canSubmit: (_report: WeeklyReport) => isAuthParam && isActiveParam,
     canArchive: (_report: WeeklyReport) => false,
     canManageUsers: roleParam === 'SUPER_ADMIN' || roleParam === 'ADMIN',
     isLoginModalOpen: false,
@@ -65,13 +80,30 @@ function TestHarnessContent() {
             NAVIGATED_TO: {navigationTarget}
           </div>
         )}
-        <ReportEditorView
-          reportId={null}
-          isDesignPreview={isPreviewParam}
-          apiEndpoint="/api/test-harness/reports"
-          onBack={() => setNavigationTarget('/reports')}
-          onSaved={(id) => setNavigationTarget(`/reports/${id}`)}
-        />
+
+        {viewParam === 'detail' ? (
+          <ReportDetailView
+            reportId={reportIdParam || 'rep_test_001'}
+            isDesignPreview={isPreviewParam}
+            apiEndpoint={apiEndpointParam}
+            onBack={() => setNavigationTarget('/reports')}
+            onEdit={(id) => setNavigationTarget(`/reports/${id}/edit`)}
+          />
+        ) : viewParam === 'reviews' ? (
+          <ReviewsQueueView
+            isDesignPreview={isPreviewParam}
+            apiEndpoint={apiEndpointParam}
+            onOpenReport={(id) => setNavigationTarget(`/reports/${id}`)}
+          />
+        ) : (
+          <ReportEditorView
+            reportId={reportIdParam}
+            isDesignPreview={isPreviewParam}
+            apiEndpoint={apiEndpointParam}
+            onBack={() => setNavigationTarget('/reports')}
+            onSaved={(id) => setNavigationTarget(`/reports/${id}`)}
+          />
+        )}
       </div>
     </AuthContext.Provider>
   );

@@ -179,7 +179,7 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
   }, [currentWeekInfo.week]);
 
   // UI state
-  const [autosaveStatus, setAutosaveStatus] = useState<'saved' | 'saving' | 'dirty'>('saved');
+  const [autosaveStatus, setAutosaveStatus] = useState<'saved' | 'saving' | 'dirty' | 'failed'>('saved');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -221,13 +221,19 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
           }
         } else {
           // Live API Detail fetch
-          const res = await fetch(`/api/reports/${encodeURIComponent(reportId)}`, {
+          const fetchUrl = apiEndpoint
+            ? `${apiEndpoint}/${encodeURIComponent(reportId)}`
+            : `/api/reports/${encodeURIComponent(reportId)}`;
+          const res = await fetch(fetchUrl, {
             credentials: 'same-origin',
           });
           if (res.ok) {
             const data = await res.json();
             if (data.success && data.data) {
               const existing: WeeklyReport = data.data;
+              if (existing.version === undefined) {
+                existing.version = 1;
+              }
               setReport(existing);
               setTitle(existing.title);
               setIsTitleManuallyEdited(true);
@@ -321,6 +327,49 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
     return true;
   };
 
+  const validateCompleteness = (): { valid: boolean; error?: string } => {
+    if (!title.trim()) {
+      return { valid: false, error: 'Judul laporan tidak boleh kosong.' };
+    }
+    // Seksi 1: Capaian Pekan Lalu
+    if (sections.achievements.items.length === 0) {
+      if (!sections.achievements.noUpdates) {
+        return { valid: false, error: 'Seksi Capaian Pekan Lalu (1) belum diisi. Tambahkan minimal 1 baris capaian atau centang "Tidak ada pembaruan".' };
+      }
+      if (!sections.achievements.noUpdatesReason || sections.achievements.noUpdatesReason.trim().length < 5) {
+        return { valid: false, error: 'Alasan tidak adanya pembaruan pada Seksi Capaian Pekan Lalu (1) wajib diisi minimal 5 karakter.' };
+      }
+    }
+    // Seksi 2: Kendala & Hambatan
+    if (sections.issues.items.length === 0) {
+      if (!sections.issues.noUpdates) {
+        return { valid: false, error: 'Seksi Kendala & Hambatan (2) belum diisi. Tambahkan minimal 1 baris kendala atau centang "Tidak ada pembaruan".' };
+      }
+      if (!sections.issues.noUpdatesReason || sections.issues.noUpdatesReason.trim().length < 5) {
+        return { valid: false, error: 'Alasan tidak adanya pembaruan pada Seksi Kendala & Hambatan (2) wajib diisi minimal 5 karakter.' };
+      }
+    }
+    // Seksi 3: Sasaran Pekan Depan
+    if (sections.objectives.items.length === 0) {
+      if (!sections.objectives.noUpdates) {
+        return { valid: false, error: 'Seksi Sasaran Pekan Depan (3) belum diisi. Tambahkan minimal 1 baris sasaran atau centang "Tidak ada pembaruan".' };
+      }
+      if (!sections.objectives.noUpdatesReason || sections.objectives.noUpdatesReason.trim().length < 5) {
+        return { valid: false, error: 'Alasan tidak adanya pembaruan pada Seksi Sasaran Pekan Depan (3) wajib diisi minimal 5 karakter.' };
+      }
+    }
+    // Seksi 4: Dukungan yang Dibutuhkan
+    if (sections.support.items.length === 0) {
+      if (!sections.support.noUpdates) {
+        return { valid: false, error: 'Seksi Dukungan yang Dibutuhkan (4) belum diisi. Tambahkan minimal 1 baris dukungan atau centang "Tidak ada pembaruan".' };
+      }
+      if (!sections.support.noUpdatesReason || sections.support.noUpdatesReason.trim().length < 5) {
+        return { valid: false, error: 'Alasan tidak adanya pembaruan pada Seksi Dukungan yang Dibutuhkan (4) wajib diisi minimal 5 karakter.' };
+      }
+    }
+    return { valid: true };
+  };
+
   const handleSaveDraft = async () => {
     if (!validateForm()) return;
 
@@ -401,29 +450,84 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
       },
     };
 
-    // Client-side payload: strictly excludes server-owned fields
-    const payload: CreateReportInput = {
-      title: title.trim() || undefined,
-      weekNumber,
-      year,
-      weekStartDate: weekInfo.startDate,
-      weekEndDate: weekInfo.endDate,
-      sections: cleanSections,
-    };
-
-    // Validate with canonical Zod schema
-    const clientValidation = CreateReportInputSchema.safeParse(payload);
-    if (!clientValidation.success) {
-      const firstIssue = clientValidation.error.issues[0]?.message || 'Data laporan tidak memenuhi kriteria validasi.';
-      setValidationError(firstIssue);
-      return;
-    }
-
     if (isSubmitting) return; // Prevent double submission
     setIsSubmitting(true);
     setValidationError(null);
 
     try {
+      if (report?.id) {
+        // Existing Report: PATCH /api/reports/[id]
+        const targetEndpoint = apiEndpoint
+          ? `${apiEndpoint}/${encodeURIComponent(report.id)}`
+          : `/api/reports/${encodeURIComponent(report.id)}`;
+
+        const currentVersion = report.version || 1;
+        const res = await fetch(targetEndpoint, {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-expected-version': String(currentVersion),
+          },
+          body: JSON.stringify({
+            expectedVersion: currentVersion,
+            expectedRevision: report.revision,
+            title: title.trim(),
+            sections: cleanSections,
+          }),
+        });
+
+        const resData = await res.json().catch(() => null);
+
+        if (res.status === 200 && resData?.success && resData.data) {
+          setReport(resData.data);
+          setAutosaveStatus('saved');
+          setSuccessMessage('Draf laporan mingguan berhasil diperbarui.');
+          return;
+        }
+
+        if (res.status === 409) {
+          setAutosaveStatus('failed');
+          setValidationError(
+            'Terjadi konflik versi (Stale Revision Conflict): Laporan ini telah diperbarui oleh sesi lain. Perubahan Anda masih tetap ada di layar editor.'
+          );
+          return;
+        }
+
+        if (res.status === 400) {
+          setAutosaveStatus('failed');
+          setValidationError(resData?.error || 'Validasi draf gagal: Periksa kembali isian 4 tabel.');
+        } else if (res.status === 401) {
+          setIsSessionExpired(true);
+          setValidationError('Sesi Anda telah berakhir. Silakan masuk kembali untuk menyimpan draf.');
+        } else if (res.status === 403) {
+          setAutosaveStatus('failed');
+          setValidationError(resData?.error || 'Akses ditolak: Anda tidak memiliki izin untuk memperbarui draf ini.');
+        } else {
+          setAutosaveStatus('failed');
+          setValidationError(resData?.error || 'Gagal memperbarui draf laporan.');
+        }
+        return;
+      }
+
+      // New Report: POST /api/reports
+      const payload: CreateReportInput = {
+        title: title.trim() || undefined,
+        weekNumber,
+        year,
+        weekStartDate: weekInfo.startDate,
+        weekEndDate: weekInfo.endDate,
+        sections: cleanSections,
+      };
+
+      const clientValidation = CreateReportInputSchema.safeParse(payload);
+      if (!clientValidation.success) {
+        const firstIssue = clientValidation.error.issues[0]?.message || 'Data laporan tidak memenuhi kriteria validasi.';
+        setValidationError(firstIssue);
+        setIsSubmitting(false);
+        return;
+      }
+
       const targetEndpoint = apiEndpoint || '/api/reports';
       const res = await fetch(targetEndpoint, {
         method: 'POST',
@@ -443,7 +547,7 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
         return;
       }
 
-      // Explicit error mapping
+      // Explicit error mapping for Create Draft
       if (res.status === 400) {
         setValidationError(resData?.error || 'Validasi gagal: Periksa kembali isian 4 tabel.');
       } else if (res.status === 401) {
@@ -472,7 +576,6 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
       }
     } catch (err) {
       console.error('Fetch error saving draft:', err);
-      // Timeout or ambiguous network failure: DO NOT automatically retry POST!
       setValidationError('Koneksi terputus atau batas waktu habis saat menghubungi server. Mohon periksa koneksi Anda dan coba simpan kembali.');
     } finally {
       setIsSubmitting(false);
@@ -480,21 +583,13 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
   };
 
   const handleSubmit = async () => {
-    if (!validateForm()) return;
+    const completeness = validateCompleteness();
+    if (!completeness.valid) {
+      setValidationError(completeness.error || 'Laporan belum lengkap.');
+      return;
+    }
 
     if (isDesignPreview) {
-      // Check at least one entry or explicitly marked no-updates
-      const hasAnyContent =
-        (sections.achievements.items.length > 0 || sections.achievements.noUpdates) &&
-        (sections.issues.items.length > 0 || sections.issues.noUpdates) &&
-        (sections.objectives.items.length > 0 || sections.objectives.noUpdates) &&
-        (sections.support.items.length > 0 || sections.support.noUpdates);
-
-      if (!hasAnyContent) {
-        setValidationError('Pastikan setiap seksi dari 4 tabel memiliki minimal 1 baris atau dicentang "Tidak ada pembaruan".');
-        return;
-      }
-
       setIsSubmitting(true);
       try {
         const selectedTeam = DEMO_TEAMS.find((t) => t.id === teamId) || DEMO_TEAMS[0];
@@ -539,9 +634,165 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
       return;
     }
 
-    // In live mode, saving draft first is the canonical step
-    await handleSaveDraft();
+    // Live Mode: Authenticated Server Submission
+    if (!currentUser) {
+      setIsSessionExpired(true);
+      setValidationError('Sesi Anda tidak valid atau telah berakhir. Silakan masuk kembali.');
+      return;
+    }
+
+    if (isSubmitting) return; // Prevent double submission
+    setIsSubmitting(true);
+    setValidationError(null);
+
+    try {
+      let activeReportId = report?.id;
+      let currentVersion = report?.version || 1;
+      let currentRevision = report?.revision || 1;
+
+      // Build canonical sections payload matching Zod schemas
+      const cleanSections: WeeklyReportSectionsInput = {
+        achievements: {
+          items: sections.achievements.items.map(cleanAchievementItem),
+          noUpdates: Boolean(sections.achievements.noUpdates),
+          noUpdatesReason: sections.achievements.noUpdatesReason?.trim() || undefined,
+        },
+        issues: {
+          items: sections.issues.items.map(cleanIssueItem),
+          noUpdates: Boolean(sections.issues.noUpdates),
+          noUpdatesReason: sections.issues.noUpdatesReason?.trim() || undefined,
+        },
+        objectives: {
+          items: sections.objectives.items.map(cleanObjectiveItem),
+          noUpdates: Boolean(sections.objectives.noUpdates),
+          noUpdatesReason: sections.objectives.noUpdatesReason?.trim() || undefined,
+        },
+        support: {
+          items: sections.support.items.map(cleanSupportItem),
+          noUpdates: Boolean(sections.support.noUpdates),
+          noUpdatesReason: sections.support.noUpdatesReason?.trim() || undefined,
+        },
+      };
+
+      // Step 1: If creating a brand new report, create draft first
+      if (!activeReportId) {
+        const createPayload: CreateReportInput = {
+          title: title.trim() || undefined,
+          weekNumber,
+          year,
+          weekStartDate: weekInfo.startDate,
+          weekEndDate: weekInfo.endDate,
+          sections: cleanSections,
+        };
+
+        const createRes = await fetch(apiEndpoint || '/api/reports', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(createPayload),
+        });
+
+        const createData = await createRes.json().catch(() => null);
+        if (!createRes.ok || !createData?.success || !createData.data?.id) {
+          setValidationError(createData?.error || 'Gagal menyimpan draf awal sebelum pengajuan.');
+          setIsSubmitting(false);
+          return;
+        }
+        activeReportId = createData.data.id;
+        currentVersion = createData.data.version || 1;
+        currentRevision = createData.data.revision || 1;
+      } else {
+        // If existing report has unsaved changes, save them via PATCH first
+        const patchEndpoint = apiEndpoint
+          ? `${apiEndpoint}/${encodeURIComponent(activeReportId)}`
+          : `/api/reports/${encodeURIComponent(activeReportId)}`;
+
+        const patchRes = await fetch(patchEndpoint, {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-expected-version': String(currentVersion),
+          },
+          body: JSON.stringify({
+            expectedVersion: currentVersion,
+            expectedRevision: currentRevision,
+            title: title.trim(),
+            sections: cleanSections,
+          }),
+        });
+
+        const patchData = await patchRes.json().catch(() => null);
+        if (!patchRes.ok || !patchData?.success || !patchData.data) {
+          if (patchRes.status === 409) {
+            setAutosaveStatus('failed');
+            setValidationError('Terjadi konflik versi: Laporan ini telah diperbarui di sesi lain.');
+          } else {
+            setValidationError(patchData?.error || 'Gagal menyimpan perubahan draf sebelum pengajuan.');
+          }
+          setIsSubmitting(false);
+          return;
+        }
+        // Advance version after successful PATCH
+        currentVersion = patchData.data.version || currentVersion + 1;
+        currentRevision = patchData.data.revision || currentRevision;
+      }
+
+      // Step 2: Submit the report (POST /api/reports/[id]/submit)
+      const submitEndpoint = apiEndpoint
+        ? `${apiEndpoint}/${encodeURIComponent(activeReportId)}/submit`
+        : `/api/reports/${encodeURIComponent(activeReportId)}/submit`;
+
+      const submitRes = await fetch(submitEndpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-expected-version': String(currentVersion),
+        },
+        body: JSON.stringify({
+          expectedVersion: currentVersion,
+          expectedRevision: currentRevision,
+        }),
+      });
+
+      const submitData = await submitRes.json().catch(() => null);
+
+      if (submitRes.status === 200 && submitData?.success && submitData.data) {
+        setReport(submitData.data);
+        setAutosaveStatus('saved');
+        const isResubmit = report?.status === 'NEEDS_REVISION';
+        setSuccessMessage(
+          isResubmit
+            ? `Laporan berhasil diajukan ulang untuk ditinjau (Revisi #${submitData.data.revision}).`
+            : 'Laporan mingguan berhasil diajukan untuk ditinjau.'
+        );
+        onSaved(activeReportId);
+        return;
+      }
+
+      if (submitRes.status === 409) {
+        setAutosaveStatus('failed');
+        setValidationError(
+          'Terjadi konflik versi (Stale Revision Conflict): Laporan ini telah diperbarui di sesi lain. Silakan muat ulang dan periksa kembali.'
+        );
+      } else if (submitRes.status === 400) {
+        setValidationError(submitData?.error || 'Pengajuan laporan gagal: Validasi 4 tabel tidak terpenuhi.');
+      } else if (submitRes.status === 403) {
+        setValidationError(submitData?.error || 'Akses ditolak: Anda tidak memiliki izin untuk mengajukan laporan ini.');
+      } else {
+        setValidationError(submitData?.error || 'Gagal mengajukan laporan.');
+      }
+    } catch (err) {
+      console.error('Fetch error submitting report:', err);
+      setValidationError('Koneksi terputus saat mengajukan laporan ke server. Silakan coba kembali.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
+  const isApproved = report?.status === 'APPROVED';
+  const isNeedsRevision = report?.status === 'NEEDS_REVISION';
 
   if (!isDesignPreview && isSessionLoading) {
     return (
@@ -561,7 +812,7 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
           <AlertCircle className="w-6 h-6" />
         </div>
         <div>
-          <h2 className="text-base font-bold text-slate-800">Sesi Belum Terotentikasi</h2>
+          <h2 className="text-base font-bold text-slate-900">Sesi Berakhir</h2>
           <p className="text-xs text-slate-500 mt-1">
             Silakan masuk dengan akun terverifikasi untuk membuat draf laporan mingguan.
           </p>
@@ -605,7 +856,7 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-lg font-bold text-[#35115A]">
-                  {report ? 'Edit Laporan 4 Tabel' : 'Buat Laporan Mingguan Baru'}
+                  {report ? (isApproved ? 'Detail Laporan 4 Tabel (Disetujui)' : 'Edit Laporan 4 Tabel') : 'Buat Laporan Mingguan Baru'}
                 </h1>
                 {report && <StatusBadge type="report" value={report.status} size="sm" />}
                 {report && (
@@ -642,40 +893,104 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
                   <span className="w-2 h-2 rounded-full bg-amber-400" />
                   <span>Ada perubahan belum tersimpan</span>
                 </>
+              ) : autosaveStatus === 'failed' ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-rose-500" />
+                  <span className="text-rose-700 font-medium">Gagal menyimpan</span>
+                </>
               ) : (
                 <>
                   <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>{isDesignPreview ? 'Tersimpan di peramban (Lokal)' : 'Tersimpan'}</span>
+                  <span>{isDesignPreview ? 'Tersimpan di peramban (Lokal)' : 'Tersimpan di server'}</span>
                 </>
               )}
             </div>
 
-            <button
-              type="button"
-              data-testid="save-draft-button"
-              onClick={handleSaveDraft}
-              disabled={isSubmitting || (!isDesignPreview && !rbacPermission.allowed)}
-              className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50 border border-slate-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
-            >
-              <Save className="w-3.5 h-3.5" />
-              <span>{isSubmitting ? 'Menyimpan...' : 'Simpan Draf'}</span>
-            </button>
+            {/* If Approved, editing is disabled */}
+            {isApproved ? (
+              <div
+                data-testid="approved-readonly-badge"
+                className="px-3 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center gap-1.5"
+              >
+                <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Disetujui (Hanya-Baca)</span>
+              </div>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  data-testid="save-draft-button"
+                  onClick={handleSaveDraft}
+                  disabled={isSubmitting || (!isDesignPreview && !rbacPermission.allowed)}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50 border border-slate-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 min-h-[44px]"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isSubmitting ? 'Menyimpan...' : 'Simpan Draf'}</span>
+                </button>
 
-            <button
-              type="button"
-              data-testid="submit-report-button"
-              onClick={handleSubmit}
-              disabled={isSubmitting || (!isDesignPreview && !rbacPermission.allowed)}
-              className="px-4 py-2 text-xs font-semibold text-white bg-[#6C2AA6] hover:bg-[#35115A] disabled:opacity-50 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span>{isSubmitting ? 'Mengajukan...' : 'Ajukan Laporan'}</span>
-            </button>
+                <button
+                  type="button"
+                  data-testid={isNeedsRevision ? 'resubmit-report-button' : 'submit-report-button'}
+                  onClick={handleSubmit}
+                  disabled={isSubmitting || (!isDesignPreview && !rbacPermission.allowed)}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-[#6C2AA6] hover:bg-[#35115A] disabled:opacity-50 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs min-h-[44px]"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>
+                    {isSubmitting
+                      ? 'Mengajukan...'
+                      : isNeedsRevision
+                      ? 'Ajukan Ulang Laporan'
+                      : 'Ajukan Laporan'}
+                  </span>
+                </button>
+              </>
+            )}
           </div>
         </div>
 
+        {/* Approved Status Notice Banner */}
+        {isApproved && (
+          <div
+            data-testid="approved-status-banner"
+            className="mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-start gap-2.5 text-xs text-emerald-900"
+          >
+            <CheckCircle className="w-4 h-4 shrink-0 text-emerald-700 mt-0.5" />
+            <div>
+              <span className="font-bold">Laporan Telah Disetujui (Status: APPROVED):</span>
+              <p className="mt-0.5 text-emerald-800">
+                Laporan ini telah disetujui secara resmi oleh <strong>{report.reviewerName || 'Peninjau'}</strong>
+                {report.reviewedAt && ` pada ${new Date(report.reviewedAt).toLocaleDateString('id-ID')}`}.
+                Status Arsip: <strong>{report.archiveStatus === 'NOT_ARCHIVED' ? 'Belum Diarsipkan (Pipeline Ditunda)' : report.archiveStatus}</strong>.
+                Seluruh konten bersifat permanen (read-only) untuk kepatuhan tata kelola.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Previous Review Feedback Banner (if revision was requested) */}
+        {isNeedsRevision && report?.reviewNotes && (
+          <div
+            data-testid="reviewer-feedback-banner"
+            className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2.5 text-xs text-amber-900"
+          >
+            <Info className="w-4 h-4 shrink-0 text-amber-700 mt-0.5" />
+            <div className="flex-1">
+              <span className="font-bold">
+                Catatan Peninjau ({report.reviewerName || 'Peninjau'}):
+              </span>
+              <p className="mt-0.5 text-amber-800 leading-relaxed font-medium">
+                "{report.reviewNotes}"
+              </p>
+              <p className="mt-1 text-[11px] text-amber-700">
+                Silakan lakukan perbaikan pada seksi 4 tabel di bawah ini, lalu klik tombol <strong>"Ajukan Ulang Laporan"</strong>.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* RBAC Warning Banner if user cannot create reports */}
-        {!isDesignPreview && !rbacPermission.allowed && (
+        {!isDesignPreview && !rbacPermission.allowed && !isApproved && (
           <div
             data-testid="rbac-unauthorized-banner"
             className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-xs text-amber-800"
@@ -685,18 +1000,30 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
           </div>
         )}
 
-        {/* Validation Error Banner */}
+        {/* Validation Error Banner with optional refresh action */}
         {validationError && (
           <div
             data-testid="editor-error-banner"
+            id="validation-error-banner"
             className="mt-4 p-3 bg-rose-50 border border-rose-200 rounded-lg flex items-center gap-2 text-xs text-rose-800"
           >
             <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
             <span className="flex-1">{validationError}</span>
+            {validationError.includes('konflik') && (
+              <button
+                type="button"
+                data-testid="reload-version-button"
+                onClick={() => loadOrCreate()}
+                className="px-2.5 py-1 bg-rose-600 text-white rounded text-[11px] font-semibold hover:bg-rose-700 transition-colors shrink-0 cursor-pointer min-h-[44px] flex items-center justify-center"
+              >
+                Muat Ulang dari Server
+              </button>
+            )}
             {isSessionExpired && (
               <a
                 href="/login"
-                className="px-2.5 py-1 bg-rose-600 text-white rounded text-[11px] font-semibold hover:bg-rose-700 transition-colors"
+                data-testid="session-expired-banner"
+                className="px-2.5 py-1 bg-rose-600 text-white rounded text-[11px] font-semibold hover:bg-rose-700 transition-colors shrink-0 flex items-center justify-center"
               >
                 Masuk
               </a>
@@ -715,17 +1042,6 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
           </div>
         )}
 
-        {/* Previous Review Feedback (if revision was requested) */}
-        {report?.reviewNotes && report.status === 'NEEDS_REVISION' && (
-          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2.5 text-xs text-amber-900">
-            <Info className="w-4 h-4 shrink-0 text-amber-700 mt-0.5" />
-            <div>
-              <span className="font-bold">Catatan Peninjau ({report.reviewerName}):</span>
-              <p className="mt-0.5 text-amber-800">{report.reviewNotes}</p>
-            </div>
-          </div>
-        )}
-
         {/* Metadata Controls */}
         <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
           <div className="md:col-span-2">
@@ -736,12 +1052,13 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
               type="text"
               data-testid="report-title-input"
               value={title}
+              disabled={isApproved}
               onChange={(e) => {
                 setTitle(e.target.value);
                 setIsTitleManuallyEdited(true);
                 setAutosaveStatus('dirty');
               }}
-              className="w-full p-2 text-xs rounded-md border border-slate-300 focus:border-[#6C2AA6] outline-hidden"
+              className="w-full p-2 text-xs rounded-md border border-slate-300 focus:border-[#6C2AA6] disabled:bg-slate-100 disabled:text-slate-500 outline-hidden"
               placeholder="Judul laporan..."
             />
           </div>
@@ -754,6 +1071,7 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
               <select
                 data-testid="report-team-select"
                 value={teamId}
+                disabled={isApproved}
                 onChange={(e) => {
                   const newTeamId = e.target.value;
                   setTeamId(newTeamId);
@@ -789,6 +1107,7 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
             <select
               data-testid="report-week-select"
               value={weekNumber}
+              disabled={isApproved || Boolean(report?.id)}
               onChange={(e) => {
                 const newWeek = Number(e.target.value);
                 setWeekNumber(newWeek);
@@ -797,7 +1116,7 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
                 }
                 setAutosaveStatus('dirty');
               }}
-              className="w-full p-2 text-xs rounded-md border border-slate-300 focus:border-[#6C2AA6] outline-hidden bg-white"
+              className="w-full p-2 text-xs rounded-md border border-slate-300 focus:border-[#6C2AA6] disabled:bg-slate-100 disabled:text-slate-500 outline-hidden bg-white"
             >
               {availableWeeks.map((w) => (
                 <option key={w} value={w}>
@@ -810,7 +1129,7 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
       </div>
 
       {/* 4 Table 2x2 Grid */}
-      <FourTableGrid sections={sections} onChange={handleSectionsChange} readOnly={false} />
+      <FourTableGrid sections={sections} onChange={handleSectionsChange} readOnly={isApproved} />
     </div>
   );
 };
