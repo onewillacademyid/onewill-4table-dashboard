@@ -48,7 +48,7 @@ function mapUserToWorkflowCaller(user: User): WorkflowCaller {
 }
 
 function mapDocToWorkflowReport(reportData: WeeklyReport): WorkflowCurrentReport {
-  return {
+  const current: WorkflowCurrentReport = {
     id: reportData.id,
     title: reportData.title,
     authorId: reportData.authorId,
@@ -67,15 +67,18 @@ function mapDocToWorkflowReport(reportData: WeeklyReport): WorkflowCurrentReport
     revisionsHistory: reportData.revisionsHistory || [],
     createdAt: reportData.createdAt,
     updatedAt: reportData.updatedAt,
-    submittedAt: reportData.submittedAt,
-    reviewedAt: reportData.reviewedAt,
-    reviewedBy: reportData.reviewedBy,
-    reviewerName: reportData.reviewerName,
-    reviewNotes: reportData.reviewNotes,
     archiveStatus: reportData.archiveStatus,
-    archiveError: reportData.archiveError,
-    archiveDriveFileId: reportData.archiveDriveFileId,
   };
+
+  if (reportData.submittedAt !== undefined) current.submittedAt = reportData.submittedAt;
+  if (reportData.reviewedAt !== undefined) current.reviewedAt = reportData.reviewedAt;
+  if (reportData.reviewedBy !== undefined) current.reviewedBy = reportData.reviewedBy;
+  if (reportData.reviewerName !== undefined) current.reviewerName = reportData.reviewerName;
+  if (reportData.reviewNotes !== undefined) current.reviewNotes = reportData.reviewNotes;
+  if (reportData.archiveError !== undefined) current.archiveError = reportData.archiveError;
+  if (reportData.archiveDriveFileId !== undefined) current.archiveDriveFileId = reportData.archiveDriveFileId;
+
+  return current;
 }
 
 export class InMemoryReportRepository implements IWorkflowReportRepository {

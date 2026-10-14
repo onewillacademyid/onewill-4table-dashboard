@@ -47,8 +47,68 @@ function mapUserToWorkflowCaller(user: User): WorkflowCaller {
   };
 }
 
+/**
+ * Safely prepares documents for Firestore writes by omitting optional `undefined` fields from plain objects recursively.
+ *
+ * Strict Guarantees:
+ * 1. Purity: Does NOT mutate the input object.
+ * 2. Array Integrity: Disallows `undefined` elements inside arrays (shallow or nested). If an undefined element
+ *    is encountered in an array, throws a descriptive Error instead of silently shifting indices or altering values.
+ * 3. Null Preservation: Preserves `null` values without modification or conversion.
+ * 4. Special Objects Preservation: Preserves Date, Firestore Timestamp, FieldValue, and custom class instances.
+ * 5. Clean Object Keys: Omits properties whose value is `undefined`.
+ */
+export function sanitizeFirestorePayload<T>(payload: T, path = ''): T {
+  if (payload === null || payload === undefined) {
+    return payload;
+  }
+
+  if (typeof payload !== 'object') {
+    return payload;
+  }
+
+  // Preserve Date instances (clone to guarantee purity)
+  if (payload instanceof Date) {
+    return new Date(payload.getTime()) as unknown as T;
+  }
+
+  // Preserve non-plain objects such as Firestore FieldValue, Timestamp, DocumentReference
+  const proto = Object.getPrototypeOf(payload);
+  if (proto !== null && proto !== Object.prototype && proto !== Array.prototype) {
+    return payload;
+  }
+
+  // Handle arrays: strictly reject undefined elements to prevent shifting or index corruption
+  if (Array.isArray(payload)) {
+    const sanitizedArray: any[] = [];
+    for (let i = 0; i < payload.length; i++) {
+      const item = payload[i];
+      const itemPath = path ? `${path}[${i}]` : `[${i}]`;
+      if (item === undefined) {
+        throw new Error(
+          `Invalid Firestore payload: Array contains undefined element at index ${i} (path: "${itemPath}"). ` +
+          `Firestore arrays cannot store undefined values, and elements cannot be omitted without corrupting array positions.`
+        );
+      }
+      sanitizedArray.push(sanitizeFirestorePayload(item, itemPath));
+    }
+    return sanitizedArray as unknown as T;
+  }
+
+  // Handle plain objects: copy only defined fields into a new object (pure immutability)
+  const sanitized: Record<string, any> = {};
+  for (const [key, val] of Object.entries(payload)) {
+    if (val !== undefined) {
+      const fieldPath = path ? `${path}.${key}` : key;
+      sanitized[key] = sanitizeFirestorePayload(val, fieldPath);
+    }
+  }
+
+  return sanitized as T;
+}
+
 function mapDocToWorkflowReport(reportData: WeeklyReport): WorkflowCurrentReport {
-  return {
+  const current: WorkflowCurrentReport = {
     id: reportData.id,
     title: reportData.title,
     authorId: reportData.authorId,
@@ -67,15 +127,18 @@ function mapDocToWorkflowReport(reportData: WeeklyReport): WorkflowCurrentReport
     revisionsHistory: reportData.revisionsHistory || [],
     createdAt: reportData.createdAt,
     updatedAt: reportData.updatedAt,
-    submittedAt: reportData.submittedAt,
-    reviewedAt: reportData.reviewedAt,
-    reviewedBy: reportData.reviewedBy,
-    reviewerName: reportData.reviewerName,
-    reviewNotes: reportData.reviewNotes,
     archiveStatus: reportData.archiveStatus,
-    archiveError: reportData.archiveError,
-    archiveDriveFileId: reportData.archiveDriveFileId,
   };
+
+  if (reportData.submittedAt !== undefined) current.submittedAt = reportData.submittedAt;
+  if (reportData.reviewedAt !== undefined) current.reviewedAt = reportData.reviewedAt;
+  if (reportData.reviewedBy !== undefined) current.reviewedBy = reportData.reviewedBy;
+  if (reportData.reviewerName !== undefined) current.reviewerName = reportData.reviewerName;
+  if (reportData.reviewNotes !== undefined) current.reviewNotes = reportData.reviewNotes;
+  if (reportData.archiveError !== undefined) current.archiveError = reportData.archiveError;
+  if (reportData.archiveDriveFileId !== undefined) current.archiveDriveFileId = reportData.archiveDriveFileId;
+
+  return current;
 }
 
 // Strict runtime safeguard against client-side execution/bundling
@@ -345,7 +408,7 @@ export class FirestoreReportRepository implements IWorkflowReportRepository {
           throw new Error('REPORT_ALREADY_EXISTS');
         }
 
-        transaction.set(docRef, newReport);
+        transaction.set(docRef, sanitizeFirestorePayload(newReport));
 
         const auditEvent: FirestoreAuditEventDocument = {
           id: auditId,
@@ -363,7 +426,7 @@ export class FirestoreReportRepository implements IWorkflowReportRepository {
           },
         };
 
-        transaction.set(auditRef, auditEvent);
+        transaction.set(auditRef, sanitizeFirestorePayload(auditEvent));
       });
     } catch (err: any) {
       if (err.message === 'REPORT_ALREADY_EXISTS') {
@@ -753,7 +816,7 @@ export class FirestoreReportRepository implements IWorkflowReportRepository {
         }
 
         finalReport = transitionResult.nextReport as WeeklyReport;
-        transaction.set(docRef, transitionResult.nextReport);
+        transaction.set(docRef, sanitizeFirestorePayload(transitionResult.nextReport));
 
         const auditEvent: FirestoreAuditEventDocument = {
           id: auditId,
@@ -766,7 +829,7 @@ export class FirestoreReportRepository implements IWorkflowReportRepository {
           timestamp: transitionResult.auditEvent.timestamp,
           metadata: transitionResult.auditEvent.metadata,
         };
-        transaction.set(auditRef, auditEvent);
+        transaction.set(auditRef, sanitizeFirestorePayload(auditEvent));
       });
 
       return {
@@ -861,7 +924,7 @@ export class FirestoreReportRepository implements IWorkflowReportRepository {
         }
 
         finalReport = transitionResult.nextReport as WeeklyReport;
-        transaction.set(docRef, transitionResult.nextReport);
+        transaction.set(docRef, sanitizeFirestorePayload(transitionResult.nextReport));
 
         const auditEvent: FirestoreAuditEventDocument = {
           id: auditId,
@@ -874,7 +937,7 @@ export class FirestoreReportRepository implements IWorkflowReportRepository {
           timestamp: transitionResult.auditEvent.timestamp,
           metadata: transitionResult.auditEvent.metadata,
         };
-        transaction.set(auditRef, auditEvent);
+        transaction.set(auditRef, sanitizeFirestorePayload(auditEvent));
       });
 
       return {
@@ -969,7 +1032,7 @@ export class FirestoreReportRepository implements IWorkflowReportRepository {
         }
 
         finalReport = transitionResult.nextReport as WeeklyReport;
-        transaction.set(docRef, transitionResult.nextReport);
+        transaction.set(docRef, sanitizeFirestorePayload(transitionResult.nextReport));
 
         const auditEvent: FirestoreAuditEventDocument = {
           id: auditId,
@@ -982,7 +1045,7 @@ export class FirestoreReportRepository implements IWorkflowReportRepository {
           timestamp: transitionResult.auditEvent.timestamp,
           metadata: transitionResult.auditEvent.metadata,
         };
-        transaction.set(auditRef, auditEvent);
+        transaction.set(auditRef, sanitizeFirestorePayload(auditEvent));
       });
 
       return {
@@ -1099,11 +1162,11 @@ export class FirestoreReportRepository implements IWorkflowReportRepository {
             approvedAt: snapshotMeta.approvedAt,
             notes: snapshotMeta.notes,
           };
-          transaction.set(versionRef, versionDoc);
+          transaction.set(versionRef, sanitizeFirestorePayload(versionDoc));
         }
 
         finalReport = transitionResult.nextReport as WeeklyReport;
-        transaction.set(docRef, transitionResult.nextReport);
+        transaction.set(docRef, sanitizeFirestorePayload(transitionResult.nextReport));
 
         const auditEvent: FirestoreAuditEventDocument = {
           id: auditId,
@@ -1116,7 +1179,7 @@ export class FirestoreReportRepository implements IWorkflowReportRepository {
           timestamp: transitionResult.auditEvent.timestamp,
           metadata: transitionResult.auditEvent.metadata,
         };
-        transaction.set(auditRef, auditEvent);
+        transaction.set(auditRef, sanitizeFirestorePayload(auditEvent));
       });
 
       return {

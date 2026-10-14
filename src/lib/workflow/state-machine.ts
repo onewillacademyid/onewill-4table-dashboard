@@ -391,7 +391,7 @@ function handleTransitionSubmit(
       revision: newRevisionNumber,
       version: nextVersion,
       previousStatus: currentReport.status,
-      comments: payload?.comments?.trim() || undefined,
+      ...(payload?.comments?.trim() ? { comments: payload.comments.trim() } : {}),
     },
   };
 

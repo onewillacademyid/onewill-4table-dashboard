@@ -210,6 +210,16 @@ export async function POST(
           { status: 422 }
         );
       }
+      if (repoResult.code === 'INTERNAL_ERROR') {
+        return NextResponse.json(
+          {
+            success: false,
+            code: 'INTERNAL_ERROR',
+            error: repoResult.error || 'Terjadi kesalahan internal pada server.',
+          },
+          { status: 500 }
+        );
+      }
       return NextResponse.json(
         {
           success: false,
