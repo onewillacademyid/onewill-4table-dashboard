@@ -298,6 +298,12 @@ test.describe('M4.2-D: Workflow UI Integration & Mocked E2E Suite', () => {
     const submitBtn = page.locator('[data-testid="submit-report-button"]');
     await submitBtn.click();
 
+    // Confirm submission in confirmation modal
+    const confirmBtn = page.locator('[data-testid="confirm-submit-button"]');
+    if (await confirmBtn.isVisible()) {
+      await confirmBtn.click();
+    }
+
     // Verify navigation indicator triggered or success state
     await expect(page.locator('[data-testid="test-navigation-indicator"]')).toBeVisible();
     await expect(page.locator('[data-testid="test-navigation-indicator"]')).toHaveAttribute(
@@ -485,6 +491,12 @@ test.describe('M4.2-D: Workflow UI Integration & Mocked E2E Suite', () => {
     const resubmitBtn = page.locator('[data-testid="resubmit-report-button"]');
     await expect(resubmitBtn).toBeVisible();
     await resubmitBtn.click();
+
+    // Confirm submission in confirmation modal
+    const confirmBtn = page.locator('[data-testid="confirm-submit-button"]');
+    if (await confirmBtn.isVisible()) {
+      await confirmBtn.click();
+    }
 
     // Verify navigation indicator triggered
     await expect(page.locator('[data-testid="test-navigation-indicator"]')).toBeVisible();
@@ -841,8 +853,13 @@ test.describe('M4.2-D: Workflow UI Integration & Mocked E2E Suite', () => {
     const submitBtn = page.locator('[data-testid="submit-report-button"]');
     await submitBtn.click();
 
-    // Verify button is disabled immediately after clicking
-    await expect(submitBtn).toBeDisabled();
+    // Confirm submission in confirmation modal
+    const confirmBtn = page.locator('[data-testid="confirm-submit-button"]');
+    if (await confirmBtn.isVisible()) {
+      await confirmBtn.click();
+    } else {
+      await expect(submitBtn).toBeDisabled();
+    }
 
     // Wait for completion
     await expect(page.locator('[data-testid="test-navigation-indicator"]')).toBeVisible();

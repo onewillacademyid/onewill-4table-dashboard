@@ -184,6 +184,7 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSessionExpired, setIsSessionExpired] = useState(false);
+  const [isConfirmSubmitOpen, setIsConfirmSubmitOpen] = useState(false);
 
   const weekInfo = useMemo(() => getWeekDates(weekNumber, year), [weekNumber, year]);
 
@@ -582,15 +583,49 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
     }
   };
 
-  const handleSubmit = async () => {
+  const handleInitiateSubmit = () => {
+    // 1. Four-table completeness validation
     const completeness = validateCompleteness();
     if (!completeness.valid) {
       setValidationError(completeness.error || 'Laporan belum lengkap.');
       return;
     }
 
+    // 2. Unsaved changes (dirty) guard: require explicit save draft first
+    if (autosaveStatus === 'dirty') {
+      setValidationError('Terdapat perubahan yang belum disimpan. Silakan klik "Simpan Draf" terlebih dahulu sebelum mengajukan laporan.');
+      return;
+    }
+
+    if (!report?.id && !isDesignPreview) {
+      setValidationError('Laporan baru harus disimpan sebagai draf terlebih dahulu sebelum dapat diajukan. Silakan klik "Simpan Draf".');
+      return;
+    }
+
+    // 3. Session guard
+    if (!currentUser && !isDesignPreview) {
+      setIsSessionExpired(true);
+      setValidationError('Sesi Anda tidak valid atau telah berakhir. Silakan masuk kembali.');
+      return;
+    }
+
+    // 4. All guards passed: open confirmation modal
+    setValidationError(null);
+    setIsConfirmSubmitOpen(true);
+  };
+
+  const handleCancelSubmit = () => {
+    setIsConfirmSubmitOpen(false);
+  };
+
+  const handleConfirmSubmit = async () => {
+    if (isSubmitting) return; // Prevent double submission
+    setIsSubmitting(true);
+    setIsConfirmSubmitOpen(false);
+    setValidationError(null);
+
+    // Design Preview isolated simulation
     if (isDesignPreview) {
-      setIsSubmitting(true);
       try {
         const selectedTeam = DEMO_TEAMS.find((t) => t.id === teamId) || DEMO_TEAMS[0];
         let targetId = report?.id;
@@ -638,107 +673,22 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
     if (!currentUser) {
       setIsSessionExpired(true);
       setValidationError('Sesi Anda tidak valid atau telah berakhir. Silakan masuk kembali.');
+      setIsSubmitting(false);
       return;
     }
 
-    if (isSubmitting) return; // Prevent double submission
-    setIsSubmitting(true);
-    setValidationError(null);
-
     try {
-      let activeReportId = report?.id;
-      let currentVersion = report?.version || 1;
-      let currentRevision = report?.revision || 1;
-
-      // Build canonical sections payload matching Zod schemas
-      const cleanSections: WeeklyReportSectionsInput = {
-        achievements: {
-          items: sections.achievements.items.map(cleanAchievementItem),
-          noUpdates: Boolean(sections.achievements.noUpdates),
-          noUpdatesReason: sections.achievements.noUpdatesReason?.trim() || undefined,
-        },
-        issues: {
-          items: sections.issues.items.map(cleanIssueItem),
-          noUpdates: Boolean(sections.issues.noUpdates),
-          noUpdatesReason: sections.issues.noUpdatesReason?.trim() || undefined,
-        },
-        objectives: {
-          items: sections.objectives.items.map(cleanObjectiveItem),
-          noUpdates: Boolean(sections.objectives.noUpdates),
-          noUpdatesReason: sections.objectives.noUpdatesReason?.trim() || undefined,
-        },
-        support: {
-          items: sections.support.items.map(cleanSupportItem),
-          noUpdates: Boolean(sections.support.noUpdates),
-          noUpdatesReason: sections.support.noUpdatesReason?.trim() || undefined,
-        },
-      };
-
-      // Step 1: If creating a brand new report, create draft first
+      const activeReportId = report?.id;
       if (!activeReportId) {
-        const createPayload: CreateReportInput = {
-          title: title.trim() || undefined,
-          weekNumber,
-          year,
-          weekStartDate: weekInfo.startDate,
-          weekEndDate: weekInfo.endDate,
-          sections: cleanSections,
-        };
-
-        const createRes = await fetch(apiEndpoint || '/api/reports', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(createPayload),
-        });
-
-        const createData = await createRes.json().catch(() => null);
-        if (!createRes.ok || !createData?.success || !createData.data?.id) {
-          setValidationError(createData?.error || 'Gagal menyimpan draf awal sebelum pengajuan.');
-          setIsSubmitting(false);
-          return;
-        }
-        activeReportId = createData.data.id;
-        currentVersion = createData.data.version || 1;
-        currentRevision = createData.data.revision || 1;
-      } else {
-        // If existing report has unsaved changes, save them via PATCH first
-        const patchEndpoint = apiEndpoint
-          ? `${apiEndpoint}/${encodeURIComponent(activeReportId)}`
-          : `/api/reports/${encodeURIComponent(activeReportId)}`;
-
-        const patchRes = await fetch(patchEndpoint, {
-          method: 'PATCH',
-          credentials: 'same-origin',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-expected-version': String(currentVersion),
-          },
-          body: JSON.stringify({
-            expectedVersion: currentVersion,
-            expectedRevision: currentRevision,
-            title: title.trim(),
-            sections: cleanSections,
-          }),
-        });
-
-        const patchData = await patchRes.json().catch(() => null);
-        if (!patchRes.ok || !patchData?.success || !patchData.data) {
-          if (patchRes.status === 409) {
-            setAutosaveStatus('failed');
-            setValidationError('Terjadi konflik versi: Laporan ini telah diperbarui di sesi lain.');
-          } else {
-            setValidationError(patchData?.error || 'Gagal menyimpan perubahan draf sebelum pengajuan.');
-          }
-          setIsSubmitting(false);
-          return;
-        }
-        // Advance version after successful PATCH
-        currentVersion = patchData.data.version || currentVersion + 1;
-        currentRevision = patchData.data.revision || currentRevision;
+        setValidationError('ID Laporan tidak ditemukan. Silakan simpan draf terlebih dahulu.');
+        setIsSubmitting(false);
+        return;
       }
 
-      // Step 2: Submit the report (POST /api/reports/[id]/submit)
+      const currentVersion = report?.version || 1;
+      const currentRevision = report?.revision || 1;
+
+      // Submit the report: EXACTLY ONE POST to /api/reports/[id]/submit (ZERO PATCH)
       const submitEndpoint = apiEndpoint
         ? `${apiEndpoint}/${encodeURIComponent(activeReportId)}/submit`
         : `/api/reports/${encodeURIComponent(activeReportId)}/submit`;
@@ -931,8 +881,8 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
                 <button
                   type="button"
                   data-testid={isNeedsRevision ? 'resubmit-report-button' : 'submit-report-button'}
-                  onClick={handleSubmit}
-                  disabled={isSubmitting || (!isDesignPreview && !rbacPermission.allowed)}
+                  onClick={handleInitiateSubmit}
+                  disabled={isSubmitting || isConfirmSubmitOpen || (!isDesignPreview && !rbacPermission.allowed)}
                   className="px-4 py-2 text-xs font-semibold text-white bg-[#6C2AA6] hover:bg-[#35115A] disabled:opacity-50 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs min-h-[44px]"
                 >
                   <Send className="w-3.5 h-3.5" />
@@ -1130,6 +1080,81 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
 
       {/* 4 Table 2x2 Grid */}
       <FourTableGrid sections={sections} onChange={handleSectionsChange} readOnly={isApproved} />
+
+      {/* Submit Confirmation Modal */}
+      {isConfirmSubmitOpen && (
+        <div
+          data-testid="submit-confirm-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs"
+        >
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden text-xs animate-fade-in">
+            <div className="p-4 bg-[#35115A] text-white flex items-center justify-between">
+              <h3 className="text-sm font-bold flex items-center gap-2">
+                <Send className="w-4 h-4 text-purple-300" />
+                <span>Konfirmasi Pengajuan Laporan</span>
+              </h3>
+              <button
+                type="button"
+                data-testid="cancel-submit-button"
+                onClick={handleCancelSubmit}
+                disabled={isSubmitting}
+                className="text-white/70 hover:text-white p-2 min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer"
+                title="Batal"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <p className="text-slate-700 leading-relaxed">
+                Apakah Anda yakin ingin mengajukan laporan mingguan ini untuk ditinjau?
+                Setelah diajukan, laporan akan beralih ke status <strong>Menunggu Tinjauan (SUBMITTED)</strong> dan tidak dapat diubah kembali kecuali peninjau meminta perbaikan (revisi).
+              </p>
+
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5 font-mono text-[11px] text-slate-600">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">ID Laporan:</span>
+                  <span className="font-semibold text-slate-800">{report?.id || 'Draf Baru'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Pekan / Divisi:</span>
+                  <span className="font-semibold text-slate-800">W{weekNumber} • {effectiveTeamName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Versi Konkurensi:</span>
+                  <span className="font-semibold text-[#6C2AA6]">v{report?.version || 1}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Revisi Bisnis:</span>
+                  <span className="font-semibold text-slate-800">#{report?.revision || 1}</span>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  data-testid="cancel-submit-button"
+                  onClick={handleCancelSubmit}
+                  disabled={isSubmitting}
+                  className="px-3.5 py-2 text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer min-h-[44px] font-semibold"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  data-testid="confirm-submit-button"
+                  onClick={handleConfirmSubmit}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 font-semibold text-white bg-[#6C2AA6] hover:bg-[#35115A] rounded-lg transition-colors cursor-pointer min-h-[44px] flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{isSubmitting ? 'Mengajukan...' : isNeedsRevision ? 'Ya, Ajukan Ulang' : 'Ya, Ajukan Laporan'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
